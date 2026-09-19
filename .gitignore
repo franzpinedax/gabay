@@ -1,0 +1,12 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+gabay.db
+
+# Uploaded reminder audio (user data, not source)
+backend/uploads/
+
+# Node
+node_modules/
+dist/
