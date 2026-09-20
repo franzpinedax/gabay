@@ -66,6 +66,7 @@ CREATE TABLE IF NOT EXISTS vitals (
     hr          REAL,
     spo2        REAL,
     temp        REAL,
+    fall_detected INTEGER NOT NULL DEFAULT 0,
     recorded_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -74,6 +75,7 @@ CREATE TABLE IF NOT EXISTS alerts (
     patient_id  TEXT NOT NULL REFERENCES patients(id),
     type        TEXT NOT NULL,   -- missed | warning | info | critical
     message     TEXT NOT NULL,
+    recipients  TEXT NOT NULL DEFAULT 'caregiver',
     created_at  TEXT NOT NULL DEFAULT (datetime('now')),
     resolved    INTEGER NOT NULL DEFAULT 0
 );
@@ -99,6 +101,18 @@ def init_db():
     """Create all tables if they don't already exist."""
     with get_conn() as conn:
         conn.executescript(SCHEMA)
+        # Keep existing pilot databases compatible with the expanded
+        # smartwatch vital payload.
+        columns = {row["name"] for row in conn.execute("PRAGMA table_info(vitals)")}
+        if "fall_detected" not in columns:
+            conn.execute(
+                "ALTER TABLE vitals ADD COLUMN fall_detected INTEGER NOT NULL DEFAULT 0"
+            )
+        alert_columns = {row["name"] for row in conn.execute("PRAGMA table_info(alerts)")}
+        if "recipients" not in alert_columns:
+            conn.execute(
+                "ALTER TABLE alerts ADD COLUMN recipients TEXT NOT NULL DEFAULT 'caregiver'"
+            )
         conn.commit()
 
 

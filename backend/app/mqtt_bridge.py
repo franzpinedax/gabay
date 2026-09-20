@@ -24,6 +24,7 @@ ingestion is unaffected either way.
 """
 import json
 import logging
+from datetime import datetime, timezone
 
 import paho.mqtt.client as mqtt
 from paho.mqtt.enums import CallbackAPIVersion
@@ -59,17 +60,42 @@ def _on_message(client, userdata, msg):
         payload = json.loads(msg.payload.decode("utf-8"))
         print(f"📥 Received MQTT Vitals for {patient_id}: {payload}")
 
+        # Android's VitalsPayload uses camelCase names and reports epoch
+        # milliseconds. Keep the original short names supported as well so
+        # existing Arduino/MQTT publishers continue to work.
+        hr = payload.get("hr", payload.get("heartRate"))
+        spo2 = payload.get("spo2", payload.get("spO2"))
+        temp = payload.get("temp", payload.get("temperature"))
+        fall_detected = bool(payload.get("fall_detected", payload.get("fallDetected", False)))
+        recorded_at = _payload_timestamp(payload)
+
+        if hr is None and spo2 is None and temp is None:
+            raise ValueError("Payload contains no supported vital values")
+
         analytics.record_vital(
             patient_id,
-            hr=payload.get("hr"),
-            spo2=payload.get("spo2"),
-            temp=payload.get("temp"),
+            hr=hr,
+            spo2=spo2,
+            temp=temp,
+            fall_detected=fall_detected,
+            recorded_at=recorded_at,
         )
         logger.info(f"Ingested MQTT vital for {patient_id}: {payload}")
     except Exception as e:
         # A malformed message from one bad publish should never crash
         # the whole ingestion pipeline — log it and move on.
         logger.error(f"Failed to process MQTT message on {msg.topic!r}: {e}")
+
+
+def _payload_timestamp(payload):
+    """Convert Android epoch milliseconds to the ISO format used by SQLite."""
+    timestamp = payload.get("timestamp")
+    if timestamp is None:
+        return None
+    try:
+        return datetime.fromtimestamp(float(timestamp) / 1000, timezone.utc).isoformat()
+    except (TypeError, ValueError, OverflowError, OSError) as exc:
+        raise ValueError(f"Invalid timestamp {timestamp!r}") from exc
 
 
 def start():

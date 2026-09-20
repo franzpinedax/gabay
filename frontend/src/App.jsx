@@ -327,6 +327,7 @@ function AlertRow({ alert }) {
   const map = {
     missed: { color: C.danger, Icon: AlertTriangle },
     warning: { color: C.amber, Icon: AlertTriangle },
+    critical: { color: C.danger, Icon: AlertTriangle },
     info: { color: C.teal, Icon: CheckCircle2 },
   };
   const cfg = map[alert.type] || map.info;
@@ -336,7 +337,9 @@ function AlertRow({ alert }) {
       <Icon size={16} style={{ color: cfg.color, marginTop: 2, flexShrink: 0 }} />
       <div className="flex-1">
         <p style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.ink, margin: 0 }}>{alert.message}</p>
-        <p style={{ fontFamily: FONT_MONO, fontSize: 11, color: C.inkFaint, margin: "2px 0 0" }}>{alert.time}</p>
+        <p style={{ fontFamily: FONT_MONO, fontSize: 11, color: C.inkFaint, margin: "2px 0 0" }}>
+          {alert.time}{alert.recipients === "caregiver,provider" ? " · Caregiver + healthcare provider" : ""}
+        </p>
       </div>
     </div>
   );
@@ -1127,6 +1130,7 @@ export default function App() {
   useEffect(() => {
     pollRef.current = setInterval(() => {
       dataService.getVitalsSnapshot(selectedPatientId).then(setVitals);
+      dataService.getAlerts(selectedPatientId).then(setAlerts);
     }, 5000);
     return () => clearInterval(pollRef.current);
   }, [selectedPatientId]);

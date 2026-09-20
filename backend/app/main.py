@@ -152,7 +152,10 @@ def vitals_trend(patient_id: str, days: int = 7):
 async def post_vital(patient_id: str, body: VitalIn):
     """Ingestion endpoint: point your Arduino/wearable gateway here.
     e.g. POST {"hr": 78, "spo2": 97, "temp": 36.6}"""
-    result = analytics.record_vital(patient_id, body.hr, body.spo2, body.temp)
+    result = analytics.record_vital(
+        patient_id, body.hr, body.spo2, body.temp,
+        body.fall_detected, body.recorded_at,
+    )
     await manager.broadcast(patient_id, {"type": "vitals", "data": result})
     return result
 

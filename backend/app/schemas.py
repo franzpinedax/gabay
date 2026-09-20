@@ -9,6 +9,10 @@ class VitalIn(BaseModel):
     hr: Optional[float] = Field(None, ge=0, le=250, description="Heart rate, bpm")
     spo2: Optional[float] = Field(None, ge=0, le=100, description="Blood oxygen saturation, %")
     temp: Optional[float] = Field(None, ge=25, le=45, description="Body temperature, °C")
+    fall_detected: bool = False
+    recorded_at: Optional[str] = Field(
+        None, description="Reading time as an ISO-8601 timestamp"
+    )
 
 
 class ConfirmIn(BaseModel):

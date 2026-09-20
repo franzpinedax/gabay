@@ -200,6 +200,33 @@ ws.onmessage = (event) => {
 };
 ```
 
+### Android smartwatch MQTT payload
+
+The MQTT bridge subscribes to
+`gabay/patients/<patient_id>/vitals` and accepts both the short backend
+field names and the Android `VitalsPayload` names. This Android payload
+is valid as-is:
+
+```json
+{
+  "heartRate": 81,
+  "spO2": 95.0,
+  "temperature": null,
+  "timestamp": 1789918221000,
+  "dateTimePht": "2026-09-20 23:30:21",
+  "fallDetected": false
+}
+```
+
+`timestamp` is interpreted as Unix epoch milliseconds and is used as the
+vital's recorded time. `fallDetected: true` is stored with the vital,
+included in the latest-vitals response and ledger entry, and creates a
+critical notification addressed to both the caregiver and healthcare
+provider dashboards. `dateTimePht` is retained as an Android-side
+display field but the numeric `timestamp` is the authoritative time.
+The MQTT bridge still supports
+`hr`/`spo2`/`temp` for existing publishers.
+
 ## Wiring up the ESP32 dispenser
 
 The API is hardware-agnostic — any device that can send an HTTP POST
