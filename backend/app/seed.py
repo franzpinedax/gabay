@@ -27,6 +27,8 @@ PATIENTS = [
          condition="MCI, Type 2 Diabetes", caregiver_name="Jun Dela Cruz", status="attention"),
     dict(id="p3", name="Corazon Santos", nickname=None, age=69,
          condition="Mild Cognitive Impairment", caregiver_name="Liza Santos", status="good"),
+    dict(id="franzpineda8249", name="Franz Pineda", nickname="Franz", age=22,
+         condition="Health Monitoring", caregiver_name="Self", status="good"),
 ]
 
 SCHEDULES = {
@@ -48,17 +50,17 @@ SCHEDULES = {
         ("Memantine", "10mg", "17:30"),
         ("Losartan", "50mg", "20:30"),
     ],
+    "franzpineda8249": [
+        ("Vitamin C", "500mg", "09:00"),
+    ],
 }
 
-# Per-patient, per-timeslot adherence probability. Deliberately uneven —
-# e.g. p2 struggles specifically with the midday Glimepiride dose
-# (busy/distracted at lunch), p3 struggles with the early-morning dose
-# (hard to wake) and evenings (fatigue) — consistent with the
-# time-of-day adherence patterns your literature review cites.
+# Per-patient, per-timeslot adherence probability.
 TIME_SLOT_ADHERENCE = {
     "p1": {"Morning": 0.97, "Afternoon": 0.96, "Evening": 0.90, "Night": 0.88},
     "p2": {"Morning": 0.88, "Afternoon": 0.65, "Evening": 0.85, "Night": 0.82},
     "p3": {"Morning": 0.55, "Afternoon": 0.75, "Evening": 0.60, "Night": 0.78},
+    "franzpineda8249": {"Morning": 0.95, "Afternoon": 0.95, "Evening": 0.95, "Night": 0.95},
 }
 WEEKEND_PENALTY = 0.08  # adherence probability drops by this much on Sat/Sun
 
@@ -66,6 +68,7 @@ VITAL_BASELINE = {
     "p1": dict(hr=76, spo2=97, temp=36.6),
     "p2": dict(hr=89, spo2=95, temp=36.9),
     "p3": dict(hr=104, spo2=92, temp=37.5),
+    "franz-pineda-8249": dict(hr=72, spo2=98, temp=36.5),
 }
 
 

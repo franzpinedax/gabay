@@ -18,6 +18,7 @@ import analytics
 import blockchain
 import predictive
 import reminders
+import mqtt_bridge
 from database import get_conn, init_db, generate_patient_id
 from schemas import VitalIn, ConfirmIn, ScheduleIn, PatientIn
 
@@ -38,6 +39,12 @@ app.add_middleware(
 def on_startup():
     init_db()
     asyncio.create_task(_background_sweeper())
+    mqtt_bridge.start()
+
+
+@app.on_event("shutdown")
+def on_shutdown():
+    mqtt_bridge.stop()
 
 
 # ---------------------------------------------------------------

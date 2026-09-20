@@ -323,17 +323,25 @@ def get_missed_by_medication(patient_id: str, days: int = 30) -> list:
 # =================================================================
 # 3. VITAL SIGN MONITORING ALGORITHM
 # =================================================================
-def record_vital(patient_id: str, hr: float, spo2: float, temp: float) -> dict:
+def record_vital(patient_id: str, hr: float = None, spo2: float = None, temp: float = None) -> dict:
+    # recorded_at is set explicitly here (rather than relying on the
+    # column's SQL-level DEFAULT) because SQLite's datetime('now') produces
+    # a space-separated timestamp ("2026-09-19 12:55:15"), while every other
+    # timestamp in this app is Python-generated ISO format with a "T"
+    # separator. Comparing those as plain text in a BETWEEN clause put
+    # today's vitals outside the expected range and silently dropped them
+    # from trend queries — this keeps the format consistent everywhere.
+    now = datetime.now().isoformat()
     with get_conn() as conn:
         conn.execute(
-            "INSERT INTO vitals (patient_id, hr, spo2, temp) VALUES (?, ?, ?, ?)",
-            (patient_id, hr, spo2, temp),
+            "INSERT INTO vitals (patient_id, hr, spo2, temp, recorded_at) VALUES (?, ?, ?, ?, ?)",
+            (patient_id, hr, spo2, temp, now),
         )
         conn.commit()
 
     blockchain.append_entry(patient_id, "vital_reading_logged", {"hr": hr, "spo2": spo2, "temp": temp})
     check_vitals_and_alert(patient_id, hr, spo2, temp)
-    return {"hr": hr, "spo2": spo2, "temp": temp, "timestamp": datetime.now().isoformat()}
+    return {"hr": hr, "spo2": spo2, "temp": temp, "timestamp": now}
 
 
 def get_latest_vitals(patient_id: str) -> dict:

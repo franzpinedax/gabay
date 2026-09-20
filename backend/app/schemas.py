@@ -6,9 +6,9 @@ from typing import Optional
 
 
 class VitalIn(BaseModel):
-    hr: float = Field(..., ge=0, le=250, description="Heart rate, bpm")
-    spo2: float = Field(..., ge=0, le=100, description="Blood oxygen saturation, %")
-    temp: float = Field(..., ge=25, le=45, description="Body temperature, °C")
+    hr: Optional[float] = Field(None, ge=0, le=250, description="Heart rate, bpm")
+    spo2: Optional[float] = Field(None, ge=0, le=100, description="Blood oxygen saturation, %")
+    temp: Optional[float] = Field(None, ge=25, le=45, description="Body temperature, °C")
 
 
 class ConfirmIn(BaseModel):
