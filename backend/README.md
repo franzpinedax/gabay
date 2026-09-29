@@ -227,6 +227,40 @@ display field but the numeric `timestamp` is the authoritative time.
 The MQTT bridge still supports
 `hr`/`spo2`/`temp` for existing publishers.
 
+By default, Gabay connects to the broker at `192.168.1.88:1883` and
+continues retrying if Mosquitto is started after the backend. To use a
+different broker, set `MQTT_BROKER_HOST` and optionally
+`MQTT_BROKER_PORT` before starting Uvicorn.
+
+### ESP32 dispenser commands
+
+Gabay checks pending dose events every 30 seconds. At the scheduled time it
+publishes one command to:
+
+`gabay/patients/<patient_id>/dispenser/command`
+
+Example payload:
+
+```json
+{
+  "command": "dispense",
+  "event_id": 42,
+  "med_name": "Metformin",
+  "dosage": "500 mg",
+  "scheduled_datetime": "2026-09-30T08:00:00",
+  "alarm": true
+}
+```
+
+The ESP32 should subscribe to that topic, sound its local alarm, actuate the
+dispenser, then call:
+
+`POST http://<gabay-server-ip>:8000/dispense-events/42/dispensed`
+
+The command is sent once per scheduled event. The existing dashboard and
+wearable confirmation endpoints continue to record whether the dose was
+actually taken.
+
 ## Wiring up the ESP32 dispenser
 
 The API is hardware-agnostic — any device that can send an HTTP POST

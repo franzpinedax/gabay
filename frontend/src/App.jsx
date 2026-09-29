@@ -111,9 +111,9 @@ const dataService = {
     return res.json();
   },
   async dispenseDose(eventId) {
-    // Stands in for the ESP32 calling this the moment its servo
-    // actuates. Same endpoint the real firmware will call.
-    const res = await fetch(`${API_BASE}/dispense-events/${eventId}/dispensed`, { method: "POST" });
+    // Ask Gabay to publish the MQTT command to the ESP32. The ESP32
+    // confirms the actual actuation through the /dispensed endpoint.
+    const res = await fetch(`${API_BASE}/dispense-events/${eventId}/command`, { method: "POST" });
     if (!res.ok) throw new Error(`dispense → ${res.status}`);
     return res.json();
   },

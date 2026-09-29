@@ -54,6 +54,7 @@ CREATE TABLE IF NOT EXISTS dispense_events (
     dosage              TEXT NOT NULL,
     scheduled_datetime  TEXT NOT NULL,   -- ISO datetime
     dispensed_at        TEXT,            -- set when the mechanism actuates
+    command_sent_at     TEXT,            -- set when the ESP32 command is published
     confirmed_at        TEXT,            -- set when intake is confirmed
     status              TEXT NOT NULL DEFAULT 'pending',
         -- pending | dispensed | confirmed | missed
@@ -113,6 +114,9 @@ def init_db():
             conn.execute(
                 "ALTER TABLE alerts ADD COLUMN recipients TEXT NOT NULL DEFAULT 'caregiver'"
             )
+        event_columns = {row["name"] for row in conn.execute("PRAGMA table_info(dispense_events)")}
+        if "command_sent_at" not in event_columns:
+            conn.execute("ALTER TABLE dispense_events ADD COLUMN command_sent_at TEXT")
         conn.commit()
 
 

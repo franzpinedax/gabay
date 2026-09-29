@@ -9,6 +9,7 @@ Run with:  uvicorn main:app --reload --host 0.0.0.0 --port 8000
 """
 import asyncio
 import json
+from datetime import datetime
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, UploadFile, File
 from fastapi.responses import FileResponse
@@ -89,7 +90,8 @@ async def _background_sweeper():
             newly_missed = analytics.sweep_missed_doses(pid, grace_minutes=30)
             for _ in newly_missed:
                 await manager.broadcast(pid, {"type": "alert_update"})
-        await asyncio.sleep(300)  # every 5 minutes
+        mqtt_bridge.publish_due_commands()
+        await asyncio.sleep(30)
 
 
 # ---------------------------------------------------------------
@@ -187,6 +189,27 @@ async def dispensed(event_id: int):
     row = analytics.mark_dispensed(event_id)
     await manager.broadcast(row["patient_id"], {"type": "schedule_update"})
     return row
+
+
+@app.post("/dispense-events/{event_id}/command")
+async def send_dispense_command(event_id: int):
+    """Send an immediate MQTT dispense command to the ESP32."""
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM dispense_events WHERE id=?", (event_id,)).fetchone()
+    if not row:
+        raise HTTPException(404, "Dispense event not found")
+    if row["status"] not in ("pending", "dispensed"):
+        raise HTTPException(409, f"Dose is already {row['status']}")
+    if not mqtt_bridge.publish_dispense_command(dict(row)):
+        raise HTTPException(503, "MQTT dispenser is not connected")
+
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE dispense_events SET command_sent_at=? WHERE id=?",
+            (datetime.now().isoformat(), event_id),
+        )
+        conn.commit()
+    return {"sent": True, "event_id": event_id}
 
 
 @app.post("/dispense-events/{event_id}/confirm")
