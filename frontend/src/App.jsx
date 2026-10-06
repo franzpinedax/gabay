@@ -4,7 +4,7 @@ import {
   Tooltip, ResponsiveContainer, ReferenceLine,
 } from "recharts";
 import {
-  Pill, HeartPulse, Thermometer, Activity, ShieldCheck, AlertTriangle,
+  Pill, HeartPulse, Activity, ShieldCheck, AlertTriangle,
   Wifi, Users, Stethoscope, Clock, CheckCircle2, XCircle, Link2,
   ChevronRight, Bell, User, Download, Radio, Plus, X, Trash2, Wrench,
   Mic, Volume2, Play, Square, Upload, RotateCcw,
@@ -89,6 +89,7 @@ const dataService = {
       id: r.id,
       time: new Date(r.created_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }),
       event: r.event_type.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+      eventType: r.event_type,
       hash: `${r.hash.slice(0, 10)}…${r.hash.slice(-6)}`,
     }));
   },
@@ -111,9 +112,9 @@ const dataService = {
     return res.json();
   },
   async dispenseDose(eventId) {
-    // Ask Gabay to publish the MQTT command to the ESP32. The ESP32
-    // confirms the actual actuation through the /dispensed endpoint.
-    const res = await fetch(`${API_BASE}/dispense-events/${eventId}/command`, { method: "POST" });
+    // Stands in for the ESP32 calling this the moment its servo
+    // actuates. Same endpoint the real firmware will call.
+    const res = await fetch(`${API_BASE}/dispense-events/${eventId}/dispensed`, { method: "POST" });
     if (!res.ok) throw new Error(`dispense → ${res.status}`);
     return res.json();
   },
@@ -146,11 +147,6 @@ function assessVital(kind, value) {
   if (kind === "spo2") {
     if (value >= 95) return "good";
     if (value >= 90) return "attention";
-    return "critical";
-  }
-  if (kind === "temp") {
-    if (value >= 36.1 && value <= 37.4) return "good";
-    if (value <= 38.2) return "attention";
     return "critical";
   }
   return "good";
@@ -327,7 +323,6 @@ function AlertRow({ alert }) {
   const map = {
     missed: { color: C.danger, Icon: AlertTriangle },
     warning: { color: C.amber, Icon: AlertTriangle },
-    critical: { color: C.danger, Icon: AlertTriangle },
     info: { color: C.teal, Icon: CheckCircle2 },
   };
   const cfg = map[alert.type] || map.info;
@@ -337,9 +332,7 @@ function AlertRow({ alert }) {
       <Icon size={16} style={{ color: cfg.color, marginTop: 2, flexShrink: 0 }} />
       <div className="flex-1">
         <p style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.ink, margin: 0 }}>{alert.message}</p>
-        <p style={{ fontFamily: FONT_MONO, fontSize: 11, color: C.inkFaint, margin: "2px 0 0" }}>
-          {alert.time}{alert.recipients === "caregiver,provider" ? " · Caregiver + healthcare provider" : ""}
-        </p>
+        <p style={{ fontFamily: FONT_MONO, fontSize: 11, color: C.inkFaint, margin: "2px 0 0" }}>{alert.time}</p>
       </div>
     </div>
   );
@@ -680,7 +673,6 @@ function CaregiverView({
           <div className="flex gap-3 flex-wrap">
             <VitalCard icon={HeartPulse} label="Heart Rate" value={vitals.hr} unit="bpm" kind="hr" range="60–100 bpm" />
             <VitalCard icon={Activity} label="Oxygen (SpO2)" value={vitals.spo2} unit="%" kind="spo2" range="≥ 95%" />
-            <VitalCard icon={Thermometer} label="Temperature" value={vitals.temp} unit="°C" kind="temp" range="36.1–37.4°C" />
           </div>
         )}
       </SectionCard>
@@ -788,7 +780,7 @@ function AddPatientModal({ onClose, onCreated }) {
         <div className="flex flex-col gap-3">
           <div>
             <label style={labelStyle}>Full name *</label>
-            <input style={inputStyle} value={form.name} onChange={set("name")} placeholder="Juan Dela Cruz" />
+            <input style={inputStyle} value={form.name} onChange={set("name")} placeholder="Franz Pineda" />
           </div>
           <div className="flex gap-3">
             <div style={{ flex: 1 }}>
@@ -806,7 +798,7 @@ function AddPatientModal({ onClose, onCreated }) {
           </div>
           <div>
             <label style={labelStyle}>Caregiver name</label>
-            <input style={inputStyle} value={form.caregiver_name} onChange={set("caregiver_name")} placeholder="Maria Dela Cruz" />
+            <input style={inputStyle} value={form.caregiver_name} onChange={set("caregiver_name")} placeholder="Caregiver" />
           </div>
 
           <div style={{ borderTop: `1px solid ${C.border}`, marginTop: 6, paddingTop: 14 }}>
@@ -897,6 +889,20 @@ function SkeletonLine() {
 function ProviderView({ patients, selectedPatientId, onSelect, onPatientCreated, patient, vitals, adherence30, missedByTime, vitalsTrend, blockchainLog, loading }) {
   const [exportNote, setExportNote] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [blockchainFilter, setBlockchainFilter] = useState("all");
+  const visibleBlockchainLog = blockchainLog.filter((row) => {
+    if (blockchainFilter === "all") return true;
+    if (blockchainFilter === "doses") return row.eventType.startsWith("dose_");
+    if (blockchainFilter === "vitals") return row.eventType === "vital_reading_logged";
+    if (blockchainFilter === "alerts") return row.eventType === "caregiver_alert_sent";
+    return true;
+  });
+  const blockchainFilters = [
+    { key: "all", label: "All" },
+    { key: "doses", label: "Doses" },
+    { key: "vitals", label: "Vitals" },
+    { key: "alerts", label: "Alerts" },
+  ];
   return (
     <div className="flex flex-col md:flex-row gap-4">
       <div className="w-full md:w-56 flex-shrink-0 rounded-2xl p-3" style={{ background: C.surface, border: `1px solid ${C.border}`, height: "fit-content" }}>
@@ -961,7 +967,6 @@ function ProviderView({ patients, selectedPatientId, onSelect, onPatientCreated,
             <div className="flex gap-3 flex-wrap">
               <VitalCard icon={HeartPulse} label="Heart Rate" value={vitals.hr} unit="bpm" kind="hr" range="60–100 bpm" />
               <VitalCard icon={Activity} label="Oxygen (SpO2)" value={vitals.spo2} unit="%" kind="spo2" range="≥ 95%" />
-              <VitalCard icon={Thermometer} label="Temperature" value={vitals.temp} unit="°C" kind="temp" range="36.1–37.4°C" />
             </div>
           )}
         </SectionCard>
@@ -1020,7 +1025,33 @@ function ProviderView({ patients, selectedPatientId, onSelect, onPatientCreated,
 
         <SectionCard icon={ShieldCheck} title="Blockchain audit log" subtitle="Tamper-proof dispensing & alert ledger">
           {loading ? <SkeletonLine /> : (
-            <div className="overflow-x-auto">
+            <div>
+              <div className="flex items-center gap-2 flex-wrap mb-3">
+                {blockchainFilters.map((filter) => {
+                  const active = blockchainFilter === filter.key;
+                  return (
+                    <button
+                      key={filter.key}
+                      onClick={() => setBlockchainFilter(filter.key)}
+                      className="rounded-full px-3 py-1.5"
+                      style={{
+                        background: active ? C.tealDeep : C.bgAlt,
+                        color: active ? "#fff" : C.inkSoft,
+                        border: `1px solid ${active ? C.tealDeep : C.border}`,
+                        fontFamily: FONT_BODY,
+                        fontSize: 12,
+                        cursor: "pointer",
+                      }}
+                    >
+                      {filter.label}
+                    </button>
+                  );
+                })}
+                <span style={{ fontFamily: FONT_MONO, fontSize: 11, color: C.inkFaint }}>
+                  {visibleBlockchainLog.length} event{visibleBlockchainLog.length === 1 ? "" : "s"}
+                </span>
+              </div>
+              <div className="overflow-x-auto">
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead>
                   <tr>
@@ -1032,7 +1063,7 @@ function ProviderView({ patients, selectedPatientId, onSelect, onPatientCreated,
                   </tr>
                 </thead>
                 <tbody>
-                  {blockchainLog.map((row) => (
+                  {visibleBlockchainLog.map((row) => (
                     <tr key={row.id} style={{ borderTop: `1px solid ${C.border}` }}>
                       <td style={{ fontFamily: FONT_MONO, fontSize: 12, color: C.inkSoft, padding: "8px" }}>{row.time}</td>
                       <td style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.ink, padding: "8px" }}>{row.event}</td>
@@ -1046,6 +1077,7 @@ function ProviderView({ patients, selectedPatientId, onSelect, onPatientCreated,
                   ))}
                 </tbody>
               </table>
+              </div>
             </div>
           )}
         </SectionCard>
@@ -1130,9 +1162,27 @@ export default function App() {
   useEffect(() => {
     pollRef.current = setInterval(() => {
       dataService.getVitalsSnapshot(selectedPatientId).then(setVitals);
-      dataService.getAlerts(selectedPatientId).then(setAlerts);
     }, 5000);
     return () => clearInterval(pollRef.current);
+  }, [selectedPatientId]);
+
+  useEffect(() => {
+    let active = true;
+    const refreshBlockchain = async () => {
+      try {
+        const log = await dataService.getBlockchainLog(selectedPatientId);
+        if (active) setBlockchainLog(log);
+      } catch (error) {
+        console.error("Failed to refresh blockchain audit log", error);
+      }
+    };
+
+    refreshBlockchain();
+    const interval = setInterval(refreshBlockchain, 3000);
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
   }, [selectedPatientId]);
 
   // Manual dispenser test controls (see DispenserTestPanel). These call

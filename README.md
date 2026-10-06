@@ -52,7 +52,7 @@ uvicorn main:app --reload --port 8000
 
 Leave this running. Open **http://localhost:8000/docs** in a browser — if you see the FastAPI interactive docs page, the backend is up.
 
-> `python seed.py` resets the database and reloads 3 sample patients with 90 days of history. Re-run it any time you want to reset back to a clean demo state — it's safe to run repeatedly.
+> `python seed.py` resets the database and reloads Franz Pineda as the single sample patient for testing. Re-run it any time you want to reset back to a clean demo state — it's safe to run repeatedly.
 
 ## 4. Terminal B — start the frontend
 
@@ -66,7 +66,7 @@ Open the URL it prints (**http://localhost:5173**). You should see the Gabay das
 
 ## 5. Confirm it's actually connected (not just running)
 
-- Switch the role toggle to **Healthcare Provider** and click between the 3 patients in the sidebar — each should show different adherence numbers.
+- Switch the role toggle to **Healthcare Provider** and confirm the single patient in the sidebar is **Franz Pineda** with the expected adherence data.
 - Open the **Blockchain audit log** section — hashes should be long hex strings (not the placeholder `0x8f3a...` style text), confirming this is real data from `blockchain.py`.
 - If anything shows blank/loading forever, see Troubleshooting below.
 

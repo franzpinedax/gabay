@@ -7,9 +7,8 @@ relaying Mi Band data — feed vitals into the exact same pipeline
 speak HTTP/REST at all.
 
 Topic convention:  gabay/patients/<patient_id>/vitals
-Payload (JSON):     {"hr": 78, "spo2": 97, "temp": 36.6}
-                     (spo2/temp optional — same rule as the HTTP
-                     endpoint, since a Mi Band relay may only have HR)
+Payload (JSON):     {"hr": 78, "spo2": 97}
+                     (spo2 optional, since a Mi Band relay may only have HR)
 
 You need an actual MQTT BROKER for this to talk through — MQTTX is a
 client/testing tool, not a broker. Recommended: run Mosquitto locally
@@ -65,20 +64,13 @@ def _on_message(client, userdata, msg):
         # existing Arduino/MQTT publishers continue to work.
         hr = payload.get("hr", payload.get("heartRate"))
         spo2 = payload.get("spo2", payload.get("spO2"))
-        temp = payload.get("temp", payload.get("temperature"))
-        fall_detected = bool(payload.get("fall_detected", payload.get("fallDetected", False)))
-        recorded_at = _payload_timestamp(payload)
-
-        if hr is None and spo2 is None and temp is None:
+        if hr is None and spo2 is None:
             raise ValueError("Payload contains no supported vital values")
 
         analytics.record_vital(
             patient_id,
             hr=hr,
             spo2=spo2,
-            temp=temp,
-            fall_detected=fall_detected,
-            recorded_at=recorded_at,
         )
         logger.info(f"Ingested MQTT vital for {patient_id}: {payload}")
     except Exception as e:

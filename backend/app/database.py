@@ -54,7 +54,6 @@ CREATE TABLE IF NOT EXISTS dispense_events (
     dosage              TEXT NOT NULL,
     scheduled_datetime  TEXT NOT NULL,   -- ISO datetime
     dispensed_at        TEXT,            -- set when the mechanism actuates
-    command_sent_at     TEXT,            -- set when the ESP32 command is published
     confirmed_at        TEXT,            -- set when intake is confirmed
     status              TEXT NOT NULL DEFAULT 'pending',
         -- pending | dispensed | confirmed | missed
@@ -66,8 +65,6 @@ CREATE TABLE IF NOT EXISTS vitals (
     patient_id  TEXT NOT NULL REFERENCES patients(id),
     hr          REAL,
     spo2        REAL,
-    temp        REAL,
-    fall_detected INTEGER NOT NULL DEFAULT 0,
     recorded_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -76,7 +73,6 @@ CREATE TABLE IF NOT EXISTS alerts (
     patient_id  TEXT NOT NULL REFERENCES patients(id),
     type        TEXT NOT NULL,   -- missed | warning | info | critical
     message     TEXT NOT NULL,
-    recipients  TEXT NOT NULL DEFAULT 'caregiver',
     created_at  TEXT NOT NULL DEFAULT (datetime('now')),
     resolved    INTEGER NOT NULL DEFAULT 0
 );
@@ -102,21 +98,6 @@ def init_db():
     """Create all tables if they don't already exist."""
     with get_conn() as conn:
         conn.executescript(SCHEMA)
-        # Keep existing pilot databases compatible with the expanded
-        # smartwatch vital payload.
-        columns = {row["name"] for row in conn.execute("PRAGMA table_info(vitals)")}
-        if "fall_detected" not in columns:
-            conn.execute(
-                "ALTER TABLE vitals ADD COLUMN fall_detected INTEGER NOT NULL DEFAULT 0"
-            )
-        alert_columns = {row["name"] for row in conn.execute("PRAGMA table_info(alerts)")}
-        if "recipients" not in alert_columns:
-            conn.execute(
-                "ALTER TABLE alerts ADD COLUMN recipients TEXT NOT NULL DEFAULT 'caregiver'"
-            )
-        event_columns = {row["name"] for row in conn.execute("PRAGMA table_info(dispense_events)")}
-        if "command_sent_at" not in event_columns:
-            conn.execute("ALTER TABLE dispense_events ADD COLUMN command_sent_at TEXT")
         conn.commit()
 
 
@@ -141,7 +122,7 @@ def reset_db():
 
 def generate_patient_id(name: str, conn) -> str:
     """Builds a readable, unique patient id from their name, e.g.
-    "Juan Dela Cruz" -> "juan-dela-cruz-4f2a". Takes an open connection
+    "Franz Pineda" -> "franz-pineda-4f2a". Takes an open connection
     so the uniqueness check happens in the same transaction as the
     insert that follows it."""
     slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or "patient"

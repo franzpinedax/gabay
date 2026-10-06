@@ -52,12 +52,6 @@ def assess_vital(kind: str, value: float) -> str:
         if value >= 90:
             return "attention"
         return "critical"
-    if kind == "temp":
-        if 36.1 <= value <= 37.4:
-            return "good"
-        if value <= 38.2:
-            return "attention"
-        return "critical"
     return "good"
 
 
@@ -323,38 +317,17 @@ def get_missed_by_medication(patient_id: str, days: int = 30) -> list:
 # =================================================================
 # 3. VITAL SIGN MONITORING ALGORITHM
 # =================================================================
-def record_vital(
-    patient_id: str,
-    hr: float = None,
-    spo2: float = None,
-    temp: float = None,
-    fall_detected: bool = False,
-    recorded_at: str = None,
-) -> dict:
-    # recorded_at is set explicitly here (rather than relying on the
-    # column's SQL-level DEFAULT) because SQLite's datetime('now') produces
-    # a space-separated timestamp ("2026-09-19 12:55:15"), while every other
-    # timestamp in this app is Python-generated ISO format with a "T"
-    # separator. Comparing those as plain text in a BETWEEN clause put
-    # today's vitals outside the expected range and silently dropped them
-    # from trend queries — this keeps the format consistent everywhere.
-    now = recorded_at or datetime.now().isoformat()
+def record_vital(patient_id: str, hr: float, spo2: float) -> dict:
     with get_conn() as conn:
         conn.execute(
-        """INSERT INTO vitals
-           (patient_id, hr, spo2, temp, fall_detected, recorded_at)
-           VALUES (?, ?, ?, ?, ?, ?)""",
-        (patient_id, hr, spo2, temp, int(fall_detected), now),
+            "INSERT INTO vitals (patient_id, hr, spo2) VALUES (?, ?, ?)",
+            (patient_id, hr, spo2),
         )
         conn.commit()
 
-    reading = {
-        "hr": hr, "spo2": spo2, "temp": temp,
-        "fallDetected": fall_detected, "timestamp": now,
-    }
-    blockchain.append_entry(patient_id, "vital_reading_logged", reading)
-    check_vitals_and_alert(patient_id, hr, spo2, temp, fall_detected)
-    return reading
+    blockchain.append_entry(patient_id, "vital_reading_logged", {"hr": hr, "spo2": spo2})
+    check_vitals_and_alert(patient_id, hr, spo2)
+    return {"hr": hr, "spo2": spo2, "timestamp": datetime.now().isoformat()}
 
 
 def get_latest_vitals(patient_id: str) -> dict:
@@ -364,11 +337,7 @@ def get_latest_vitals(patient_id: str) -> dict:
         ).fetchone()
     if not row:
         return None
-    return {
-        "hr": row["hr"], "spo2": row["spo2"], "temp": row["temp"],
-        "fallDetected": bool(row["fall_detected"]),
-        "timestamp": row["recorded_at"],
-    }
+    return {"hr": row["hr"], "spo2": row["spo2"], "timestamp": row["recorded_at"]}
 
 
 def get_vitals_trend(patient_id: str, days: int = 7) -> list:
@@ -379,14 +348,13 @@ def get_vitals_trend(patient_id: str, days: int = 7) -> list:
         end = datetime.combine(day, dt_time(23, 59, 59)).isoformat()
         with get_conn() as conn:
             row = conn.execute(
-                "SELECT AVG(hr) hr, AVG(spo2) spo2, AVG(temp) temp FROM vitals WHERE patient_id=? AND recorded_at BETWEEN ? AND ?",
+                "SELECT AVG(hr) hr, AVG(spo2) spo2 FROM vitals WHERE patient_id=? AND recorded_at BETWEEN ? AND ?",
                 (patient_id, start, end),
             ).fetchone()
         result.append({
             "day": day.strftime("%a"),
             "hr": round(row["hr"]) if row["hr"] is not None else None,
             "spo2": round(row["spo2"]) if row["spo2"] is not None else None,
-            "temp": round(row["temp"], 1) if row["temp"] is not None else None,
         })
     return result
 
@@ -394,41 +362,21 @@ def get_vitals_trend(patient_id: str, days: int = 7) -> list:
 # =================================================================
 # 4. ALERT ALGORITHM
 # =================================================================
-def raise_alert(
-    patient_id: str,
-    alert_type: str,
-    message: str,
-    recipients: str = "caregiver",
-) -> dict:
+def raise_alert(patient_id: str, alert_type: str, message: str) -> dict:
     with get_conn() as conn:
         cur = conn.execute(
-            "INSERT INTO alerts (patient_id, type, message, recipients) VALUES (?, ?, ?, ?)",
-            (patient_id, alert_type, message, recipients),
+            "INSERT INTO alerts (patient_id, type, message) VALUES (?, ?, ?)",
+            (patient_id, alert_type, message),
         )
         conn.commit()
         alert_id = cur.lastrowid
 
-    blockchain.append_entry(
-        patient_id,
-        "caregiver_provider_alert_sent" if recipients == "caregiver,provider" else "caregiver_alert_sent",
-        {"alert_id": alert_id, "type": alert_type, "message": message, "recipients": recipients},
-    )
-    return {"id": alert_id, "type": alert_type, "message": message, "recipients": recipients}
+    blockchain.append_entry(patient_id, "caregiver_alert_sent", {"alert_id": alert_id, "type": alert_type, "message": message})
+    return {"id": alert_id, "type": alert_type, "message": message}
 
 
-def check_vitals_and_alert(
-    patient_id: str, hr: float, spo2: float, temp: float, fall_detected: bool = False
-):
-    if fall_detected:
-        raise_alert(
-            patient_id,
-            "critical",
-            "Fall detected by smartwatch — caregiver and healthcare provider notified",
-            recipients="caregiver,provider",
-        )
-        set_patient_status_critical(patient_id)
-
-    checks = [("hr", hr, "Heart rate"), ("spo2", spo2, "Oxygen (SpO2)"), ("temp", temp, "Temperature")]
+def check_vitals_and_alert(patient_id: str, hr: float, spo2: float):
+    checks = [("hr", hr, "Heart rate"), ("spo2", spo2, "Oxygen (SpO2)")]
     for kind, value, label in checks:
         level = assess_vital(kind, value)
         if level == "critical":
@@ -454,22 +402,7 @@ def get_alerts(patient_id: str, limit: int = 10) -> list:
             return f"{hours}h ago"
         return f"{hours // 24}d ago"
 
-    return [
-        {
-            "id": r["id"],
-            "type": r["type"],
-            "message": r["message"],
-            "recipients": r["recipients"],
-            "time": relative_time(r["created_at"]),
-        }
-        for r in rows
-    ]
-
-
-def set_patient_status_critical(patient_id: str):
-    with get_conn() as conn:
-        conn.execute("UPDATE patients SET status='critical' WHERE id=?", (patient_id,))
-        conn.commit()
+    return [{"id": r["id"], "type": r["type"], "message": r["message"], "time": relative_time(r["created_at"])} for r in rows]
 
 
 # ---------------------------------------------------------------

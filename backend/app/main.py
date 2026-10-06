@@ -17,9 +17,9 @@ from fastapi.middleware.cors import CORSMiddleware
 
 import analytics
 import blockchain
+import mqtt_bridge
 import predictive
 import reminders
-import mqtt_bridge
 from database import get_conn, init_db, generate_patient_id
 from schemas import VitalIn, ConfirmIn, ScheduleIn, PatientIn
 
@@ -39,13 +39,8 @@ app.add_middleware(
 @app.on_event("startup")
 def on_startup():
     init_db()
-    asyncio.create_task(_background_sweeper())
     mqtt_bridge.start()
-
-
-@app.on_event("shutdown")
-def on_shutdown():
-    mqtt_bridge.stop()
+    asyncio.create_task(_background_sweeper())
 
 
 # ---------------------------------------------------------------
@@ -92,6 +87,11 @@ async def _background_sweeper():
                 await manager.broadcast(pid, {"type": "alert_update"})
         mqtt_bridge.publish_due_commands()
         await asyncio.sleep(30)
+
+
+@app.on_event("shutdown")
+def on_shutdown():
+    mqtt_bridge.stop()
 
 
 # ---------------------------------------------------------------
@@ -153,11 +153,8 @@ def vitals_trend(patient_id: str, days: int = 7):
 @app.post("/patients/{patient_id}/vitals")
 async def post_vital(patient_id: str, body: VitalIn):
     """Ingestion endpoint: point your Arduino/wearable gateway here.
-    e.g. POST {"hr": 78, "spo2": 97, "temp": 36.6}"""
-    result = analytics.record_vital(
-        patient_id, body.hr, body.spo2, body.temp,
-        body.fall_detected, body.recorded_at,
-    )
+    e.g. POST {"hr": 78, "spo2": 97}"""
+    result = analytics.record_vital(patient_id, body.hr, body.spo2)
     await manager.broadcast(patient_id, {"type": "vitals", "data": result})
     return result
 

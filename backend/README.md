@@ -31,7 +31,7 @@ source venv/bin/activate          # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 
 cd app
-python seed.py                    # creates gabay.db with 3 sample patients + 30 days of history
+python seed.py                    # creates gabay.db with Franz Pineda as the single sample patient + 90 days of history
 uvicorn main:app --reload --port 8000
 ```
 
@@ -147,7 +147,7 @@ freshly-onboarded patient.
 | GET | `/patients/{id}` | Single patient record |
 | GET | `/patients/{id}/vitals/latest` | Most recent vitals |
 | GET | `/patients/{id}/vitals/trend?days=7` | Daily vitals averages |
-| POST | `/patients/{id}/vitals` | **Arduino/wearable posts a reading here** — `{"hr":78,"spo2":97,"temp":36.6}` |
+| POST | `/patients/{id}/vitals` | **Arduino/wearable posts a reading here** — `{"hr":78,"spo2":97}` |
 | GET | `/patients/{id}/schedule/today` | Today's doses, shaped for the dashboard's blister strip |
 | POST | `/dispense-events/{event_id}/dispensed` | Dispenser firmware calls this when the servo actuates |
 | POST | `/dispense-events/{event_id}/confirm` | Wearable calls this when intake gesture is detected — `{"source":"wearable_gesture"}` |
@@ -200,67 +200,6 @@ ws.onmessage = (event) => {
 };
 ```
 
-### Android smartwatch MQTT payload
-
-The MQTT bridge subscribes to
-`gabay/patients/<patient_id>/vitals` and accepts both the short backend
-field names and the Android `VitalsPayload` names. This Android payload
-is valid as-is:
-
-```json
-{
-  "heartRate": 81,
-  "spO2": 95.0,
-  "temperature": null,
-  "timestamp": 1789918221000,
-  "dateTimePht": "2026-09-20 23:30:21",
-  "fallDetected": false
-}
-```
-
-`timestamp` is interpreted as Unix epoch milliseconds and is used as the
-vital's recorded time. `fallDetected: true` is stored with the vital,
-included in the latest-vitals response and ledger entry, and creates a
-critical notification addressed to both the caregiver and healthcare
-provider dashboards. `dateTimePht` is retained as an Android-side
-display field but the numeric `timestamp` is the authoritative time.
-The MQTT bridge still supports
-`hr`/`spo2`/`temp` for existing publishers.
-
-By default, Gabay connects to the broker at `192.168.1.88:1883` and
-continues retrying if Mosquitto is started after the backend. To use a
-different broker, set `MQTT_BROKER_HOST` and optionally
-`MQTT_BROKER_PORT` before starting Uvicorn.
-
-### ESP32 dispenser commands
-
-Gabay checks pending dose events every 30 seconds. At the scheduled time it
-publishes one command to:
-
-`gabay/patients/<patient_id>/dispenser/command`
-
-Example payload:
-
-```json
-{
-  "command": "dispense",
-  "event_id": 42,
-  "med_name": "Metformin",
-  "dosage": "500 mg",
-  "scheduled_datetime": "2026-09-30T08:00:00",
-  "alarm": true
-}
-```
-
-The ESP32 should subscribe to that topic, sound its local alarm, actuate the
-dispenser, then call:
-
-`POST http://<gabay-server-ip>:8000/dispense-events/42/dispensed`
-
-The command is sent once per scheduled event. The existing dashboard and
-wearable confirmation endpoints continue to record whether the dose was
-actually taken.
-
 ## Wiring up the ESP32 dispenser
 
 The API is hardware-agnostic — any device that can send an HTTP POST
@@ -280,7 +219,7 @@ here instead of the mock dashboard data:
 POST http://<your-server-ip>:8000/patients/p1/vitals
 Content-Type: application/json
 
-{"hr": 78, "spo2": 97, "temp": 36.6}
+{"hr": 78, "spo2": 97}
 ```
 
 ```
