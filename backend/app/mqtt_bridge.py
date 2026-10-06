@@ -31,7 +31,7 @@ from paho.mqtt.enums import CallbackAPIVersion
 
 import analytics
 
-MQTT_BROKER_HOST = os.getenv("MQTT_BROKER_HOST", "192.168.100.86")
+MQTT_BROKER_HOST = os.getenv("MQTT_BROKER_HOST", "127.0.0.1")
 MQTT_BROKER_PORT = int(os.getenv("MQTT_BROKER_PORT", "1883"))
 MQTT_TOPIC_FILTER = "gabay/patients/+/vitals"  # '+' matches any single topic level (the patient id)
 

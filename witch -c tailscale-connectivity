@@ -1,0 +1,180 @@
+[1mdiff --git a/README.md b/README.md[m
+[1mindex 1156c3b..05d2d56 100644[m
+[1m--- a/README.md[m
+[1m+++ b/README.md[m
+[36m@@ -64,6 +64,39 @@[m [mnpm run dev[m
+ [m
+ Open the URL it prints (**http://localhost:5173**). You should see the Gabay dashboard, now loading real data from the backend instead of mock data — patient names, adherence charts, and the blockchain log are all coming from `backend/gabay.db`.[m
+ [m
+[32m+[m[32m## Using Gabay over Tailscale[m
+[32m+[m
+[32m+[m[32mInstall and sign in to Tailscale on the Windows computer running Gabay and on any computer or phone that will open the dashboard. Find the server's Tailscale IPv4 address with:[m
+[32m+[m
+[32m+[m[32m```powershell[m
+[32m+[m[32mtailscale ip -4[m
+[32m+[m[32m```[m
+[32m+[m
+[32m+[m[32mStart the backend so it listens beyond localhost:[m
+[32m+[m
+[32m+[m[32m```bash[m
+[32m+[m[32mcd backend/app[m
+[32m+[m[32muvicorn main:app --reload --host 0.0.0.0 --port 8000[m
+[32m+[m[32m```[m
+[32m+[m
+[32m+[m[32mIn `frontend/.env.local`, replace `<TAILSCALE_IP>` with that address:[m
+[32m+[m
+[32m+[m[32m```env[m
+[32m+[m[32mVITE_API_BASE_URL=http://<TAILSCALE_IP>:8000[m
+[32m+[m[32m```[m
+[32m+[m
+[32m+[m[32mRestart the Vite dev server after changing the file, then open the printed frontend URL from another Tailscale device. Verify the API first at `http://<TAILSCALE_IP>:8000/docs`.[m
+[32m+[m
+[32m+[m[32mFor MQTT, run Mosquitto on a Tailscale-capable machine and start the backend with its Tailscale address:[m
+[32m+[m
+[32m+[m[32m```powershell[m
+[32m+[m[32m$env:MQTT_BROKER_HOST = "<MQTT_SERVER_TAILSCALE_IP>"[m
+[32m+[m[32m$env:MQTT_BROKER_PORT = "1883"[m
+[32m+[m[32muvicorn main:app --reload --host 0.0.0.0 --port 8000[m
+[32m+[m[32m```[m
+[32m+[m
+[32m+[m[32mThe ESP32 cannot install Tailscale directly. If it must reach the broker or API from outside the local network, use a Tailscale subnet router or a Tailscale-capable gateway on the ESP32's network. Then set `MQTT_HOST` and `GABAY_HOST` in `esp32/GabayDispenserSimulator/GabayDispenserSimulator.ino` to the reachable gateway/server addresses. Do not expose unauthenticated port 8000 or MQTT port 1883 publicly.[m
+[32m+[m
+ ## 5. Confirm it's actually connected (not just running)[m
+ [m
+ - Switch the role toggle to **Healthcare Provider** and confirm the single patient in the sidebar is **Franz Pineda** with the expected adherence data.[m
+[1mdiff --git a/backend/app/mqtt_bridge.py b/backend/app/mqtt_bridge.py[m
+[1mindex c76d1ab..071ceb4 100644[m
+[1m--- a/backend/app/mqtt_bridge.py[m
+[1m+++ b/backend/app/mqtt_bridge.py[m
+[36m@@ -31,7 +31,7 @@[m [mfrom paho.mqtt.enums import CallbackAPIVersion[m
+ [m
+ import analytics[m
+ [m
+[31m-MQTT_BROKER_HOST = os.getenv("MQTT_BROKER_HOST", "192.168.100.86")[m
+[32m+[m[32mMQTT_BROKER_HOST = os.getenv("MQTT_BROKER_HOST", "127.0.0.1")[m
+ MQTT_BROKER_PORT = int(os.getenv("MQTT_BROKER_PORT", "1883"))[m
+ MQTT_TOPIC_FILTER = "gabay/patients/+/vitals"  # '+' matches any single topic level (the patient id)[m
+ [m
+[1mdiff --git a/frontend/src/App.jsx b/frontend/src/App.jsx[m
+[1mindex 564cb4e..471e39f 100644[m
+[1m--- a/frontend/src/App.jsx[m
+[1m+++ b/frontend/src/App.jsx[m
+[36m@@ -46,7 +46,7 @@[m [mconst FONT_MONO = "'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospa[m
+    `uvicorn main:app --reload` before running this dashboard; see[m
+    the top-level README for the full run order.[m
+ ============================================================ */[m
+[31m-const API_BASE = "http://localhost:8000";[m
+[32m+[m[32mconst API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";[m
+ [m
+ async function getJSON(path) {[m
+   const res = await fetch(`${API_BASE}${path}`);[m
+[36m@@ -389,7 +389,7 @@[m [mfunction PatientSwitcher({ patients, selectedPatientId, onSelect }) {[m
+   );[m
+ }[m
+ [m
+[31m-function DispenserTestPanel({ schedule, onDispense, onConfirm, busy, error }) {[m
+[32m+[m[32mfunction DispenserTestPanel({ schedule, onSimulateTaken, busy, error }) {[m
+   const nextDose = schedule.find((d) => d.status === "next");[m
+   return ([m
+     <div[m
+[36m@@ -414,7 +414,7 @@[m [mfunction DispenserTestPanel({ schedule, onDispense, onConfirm, busy, error }) {[m
+           </p>[m
+           <div className="flex gap-2 flex-wrap">[m
+             <button[m
+[31m-              onClick={() => onDispense(nextDose.id)}[m
+[32m+[m[32m              onClick={() => onSimulateTaken(nextDose.id)}[m
+               disabled={busy}[m
+               className="flex items-center gap-1.5"[m
+               style={{[m
+[36m@@ -423,19 +423,7 @@[m [mfunction DispenserTestPanel({ schedule, onDispense, onConfirm, busy, error }) {[m
+                 fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600,[m
+               }}[m
+             >[m
+[31m-              <Pill size={13} /> Simulate Dispense[m
+[31m-            </button>[m
+[31m-            <button[m
+[31m-              onClick={() => onConfirm(nextDose.id)}[m
+[31m-              disabled={busy}[m
+[31m-              className="flex items-center gap-1.5"[m
+[31m-              style={{[m
+[31m-                background: "transparent", color: C.tealDeep, border: `1.5px solid ${C.teal}`, borderRadius: 999,[m
+[31m-                padding: "6px 14px", cursor: busy ? "default" : "pointer", opacity: busy ? 0.6 : 1,[m
+[31m-                fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600,[m
+[31m-              }}[m
+[31m-            >[m
+[31m-              <CheckCircle2 size={13} /> Simulate Confirm (Taken)[m
+[32m+[m[32m              <Pill size={13} /> Simulate Dispense + Taken[m
+             </button>[m
+           </div>[m
+         </>[m
+[36m@@ -611,7 +599,7 @@[m [mfunction ReminderSettings({ patientId, reminderConfig, onUpdate }) {[m
+ function CaregiverView({[m
+   patients, selectedPatientId, onSelectPatient,[m
+   patient, vitals, schedule, alerts, adherence7, loading,[m
+[31m-  onDispense, onConfirm, dispenseBusy, dispenseError,[m
+[32m+[m[32m  onSimulateTaken, dispenseBusy, dispenseError,[m
+   reminderConfig, onReminderUpdate,[m
+ }) {[m
+   return ([m
+[36m@@ -641,8 +629,7 @@[m [mfunction CaregiverView({[m
+             <MedicationDayStrip schedule={schedule} />[m
+             <DispenserTestPanel[m
+               schedule={schedule}[m
+[31m-              onDispense={onDispense}[m
+[31m-              onConfirm={onConfirm}[m
+[32m+[m[32m              onSimulateTaken={onSimulateTaken}[m
+               busy={dispenseBusy}[m
+               error={dispenseError}[m
+             />[m
+[36m@@ -1193,27 +1180,15 @@[m [mexport default function App() {[m
+   const [dispenseBusy, setDispenseBusy] = useState(false);[m
+   const [dispenseError, setDispenseError] = useState(null);[m
+ [m
+[31m-  const handleManualDispense = useCallback(async (eventId) => {[m
+[32m+[m[32m  const handleSimulateTaken = useCallback(async (eventId) => {[m
+     setDispenseBusy(true);[m
+     setDispenseError(null);[m
+     try {[m
+       await dataService.dispenseDose(eventId);[m
+[31m-      await fetchPatientData(selectedPatientId);[m
+[31m-    } catch (e) {[m
+[31m-      setDispenseError("Couldn't reach the backend — is uvicorn still running?");[m
+[31m-    } finally {[m
+[31m-      setDispenseBusy(false);[m
+[31m-    }[m
+[31m-  }, [selectedPatientId, fetchPatientData]);[m
+[31m-[m
+[31m-  const handleManualConfirm = useCallback(async (eventId) => {[m
+[31m-    setDispenseBusy(true);[m
+[31m-    setDispenseError(null);[m
+[31m-    try {[m
+       await dataService.confirmDoseManual(eventId);[m
+       await fetchPatientData(selectedPatientId);[m
+     } catch (e) {[m
+[31m-      setDispenseError("Couldn't reach the backend — is uvicorn still running?");[m
+[32m+[m[32m      setDispenseError(e.message || "Could not simulate the dispense.");[m
+     } finally {[m
+       setDispenseBusy(false);[m
+     }[m
+[36m@@ -1279,8 +1254,7 @@[m [mexport default function App() {[m
+             alerts={alerts}[m
+             adherence7={adherence7}[m
+             loading={loading}[m
+[31m-            onDispense={handleManualDispense}[m
+[31m-            onConfirm={handleManualConfirm}[m
+[32m+[m[32m            onSimulateTaken={handleSimulateTaken}[m
+             dispenseBusy={dispenseBusy}[m
+             dispenseError={dispenseError}[m
+             reminderConfig={reminderConfig}[m
+[1mdiff --git a/frontend/vite.config.js b/frontend/vite.config.js[m
+[1mindex 43a4002..6df0a78 100644[m
+[1m--- a/frontend/vite.config.js[m
+[1m+++ b/frontend/vite.config.js[m
+[36m@@ -4,6 +4,7 @@[m [mimport react from "@vitejs/plugin-react";[m
+ export default defineConfig({[m
+   plugins: [react()],[m
+   server: {[m
+[32m+[m[32m    host: "0.0.0.0",[m
+     port: 5173,[m
+   },[m
+ });[m

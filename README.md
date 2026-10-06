@@ -64,6 +64,39 @@ npm run dev
 
 Open the URL it prints (**http://localhost:5173**). You should see the Gabay dashboard, now loading real data from the backend instead of mock data — patient names, adherence charts, and the blockchain log are all coming from `backend/gabay.db`.
 
+## Using Gabay over Tailscale
+
+Install and sign in to Tailscale on the Windows computer running Gabay and on any computer or phone that will open the dashboard. Find the server's Tailscale IPv4 address with:
+
+```powershell
+tailscale ip -4
+```
+
+Start the backend so it listens beyond localhost:
+
+```bash
+cd backend/app
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
+```
+
+In `frontend/.env.local`, replace `<TAILSCALE_IP>` with that address:
+
+```env
+VITE_API_BASE_URL=http://<TAILSCALE_IP>:8000
+```
+
+Restart the Vite dev server after changing the file, then open the printed frontend URL from another Tailscale device. Verify the API first at `http://<TAILSCALE_IP>:8000/docs`.
+
+For MQTT, run Mosquitto on a Tailscale-capable machine and start the backend with its Tailscale address:
+
+```powershell
+$env:MQTT_BROKER_HOST = "<MQTT_SERVER_TAILSCALE_IP>"
+$env:MQTT_BROKER_PORT = "1883"
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
+```
+
+The ESP32 cannot install Tailscale directly. If it must reach the broker or API from outside the local network, use a Tailscale subnet router or a Tailscale-capable gateway on the ESP32's network. Then set `MQTT_HOST` and `GABAY_HOST` in `esp32/GabayDispenserSimulator/GabayDispenserSimulator.ino` to the reachable gateway/server addresses. Do not expose unauthenticated port 8000 or MQTT port 1883 publicly.
+
 ## 5. Confirm it's actually connected (not just running)
 
 - Switch the role toggle to **Healthcare Provider** and confirm the single patient in the sidebar is **Franz Pineda** with the expected adherence data.
