@@ -46,7 +46,7 @@ const FONT_MONO = "'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospa
    `uvicorn main:app --reload` before running this dashboard; see
    the top-level README for the full run order.
 ============================================================ */
-const API_BASE = "http://localhost:8000";
+const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
 async function getJSON(path) {
   const res = await fetch(`${API_BASE}${path}`);
@@ -427,7 +427,7 @@ function PatientSwitcher({ patients, selectedPatientId, onSelect }) {
   );
 }
 
-function DispenserTestPanel({ schedule, onDispense, onConfirm, busy, error }) {
+function DispenserTestPanel({ schedule, onSimulateTaken, busy, error }) {
   const nextDose = schedule.find((d) => d.status === "next");
   return (
     <div
@@ -452,7 +452,7 @@ function DispenserTestPanel({ schedule, onDispense, onConfirm, busy, error }) {
           </p>
           <div className="flex gap-2 flex-wrap">
             <button
-              onClick={() => onDispense(nextDose.id)}
+              onClick={() => onSimulateTaken(nextDose.id)}
               disabled={busy}
               className="flex items-center gap-1.5"
               style={{
@@ -461,19 +461,7 @@ function DispenserTestPanel({ schedule, onDispense, onConfirm, busy, error }) {
                 fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600,
               }}
             >
-              <Pill size={13} /> Simulate Dispense
-            </button>
-            <button
-              onClick={() => onConfirm(nextDose.id)}
-              disabled={busy}
-              className="flex items-center gap-1.5"
-              style={{
-                background: "transparent", color: C.tealDeep, border: `1.5px solid ${C.teal}`, borderRadius: 999,
-                padding: "6px 14px", cursor: busy ? "default" : "pointer", opacity: busy ? 0.6 : 1,
-                fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600,
-              }}
-            >
-              <CheckCircle2 size={13} /> Simulate Confirm (Taken)
+              <Pill size={13} /> Simulate Dispense + Taken
             </button>
           </div>
         </>
@@ -649,7 +637,7 @@ function ReminderSettings({ patientId, reminderConfig, onUpdate }) {
 function CaregiverView({
   patients, selectedPatientId, onSelectPatient,
   patient, vitals, schedule, upcomingRisk, alerts, adherence7, loading,
-  onDispense, onConfirm, dispenseBusy, dispenseError,
+  onSimulateTaken, dispenseBusy, dispenseError,
   reminderConfig, onReminderUpdate, connectionStatus,
 }) {
   const wearableConnected = connectionStatus?.wearable_connected === true;
@@ -706,8 +694,7 @@ function CaregiverView({
             )}
             <DispenserTestPanel
               schedule={schedule}
-              onDispense={onDispense}
-              onConfirm={onConfirm}
+              onSimulateTaken={onSimulateTaken}
               busy={dispenseBusy}
               error={dispenseError}
             />
@@ -1332,27 +1319,15 @@ export default function App() {
   const [dispenseBusy, setDispenseBusy] = useState(false);
   const [dispenseError, setDispenseError] = useState(null);
 
-  const handleManualDispense = useCallback(async (eventId) => {
+  const handleSimulateTaken = useCallback(async (eventId) => {
     setDispenseBusy(true);
     setDispenseError(null);
     try {
       await dataService.dispenseDose(eventId);
-      await fetchPatientData(selectedPatientId);
-    } catch (e) {
-      setDispenseError("Couldn't reach the backend — is uvicorn still running?");
-    } finally {
-      setDispenseBusy(false);
-    }
-  }, [selectedPatientId, fetchPatientData]);
-
-  const handleManualConfirm = useCallback(async (eventId) => {
-    setDispenseBusy(true);
-    setDispenseError(null);
-    try {
       await dataService.confirmDoseManual(eventId);
       await fetchPatientData(selectedPatientId);
     } catch (e) {
-      setDispenseError("Couldn't reach the backend — is uvicorn still running?");
+      setDispenseError(e.message || "Could not simulate the dispense.");
     } finally {
       setDispenseBusy(false);
     }
@@ -1419,8 +1394,7 @@ export default function App() {
             alerts={alerts}
             adherence7={adherence7}
             loading={loading}
-            onDispense={handleManualDispense}
-            onConfirm={handleManualConfirm}
+            onSimulateTaken={handleSimulateTaken}
             dispenseBusy={dispenseBusy}
             dispenseError={dispenseError}
             reminderConfig={reminderConfig}
