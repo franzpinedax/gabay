@@ -31,7 +31,7 @@ source venv/bin/activate          # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 
 cd app
-python seed.py                    # creates gabay.db with 3 sample patients + 30 days of history
+python seed.py                    # creates gabay.db with Franz Pineda as the single sample patient + 90 days of history
 uvicorn main:app --reload --port 8000
 ```
 
@@ -147,7 +147,7 @@ freshly-onboarded patient.
 | GET | `/patients/{id}` | Single patient record |
 | GET | `/patients/{id}/vitals/latest` | Most recent vitals |
 | GET | `/patients/{id}/vitals/trend?days=7` | Daily vitals averages |
-| POST | `/patients/{id}/vitals` | **Arduino/wearable posts a reading here** — `{"hr":78,"spo2":97,"temp":36.6}` |
+| POST | `/patients/{id}/vitals` | **Arduino/wearable posts a reading here** — `{"hr":78,"spo2":97}` |
 | GET | `/patients/{id}/schedule/today` | Today's doses, shaped for the dashboard's blister strip |
 | POST | `/dispense-events/{event_id}/dispensed` | Dispenser firmware calls this when the servo actuates |
 | POST | `/dispense-events/{event_id}/confirm` | Wearable calls this when intake gesture is detected — `{"source":"wearable_gesture"}` |
@@ -219,7 +219,7 @@ here instead of the mock dashboard data:
 POST http://<your-server-ip>:8000/patients/p1/vitals
 Content-Type: application/json
 
-{"hr": 78, "spo2": 97, "temp": 36.6}
+{"hr": 78, "spo2": 97}
 ```
 
 ```

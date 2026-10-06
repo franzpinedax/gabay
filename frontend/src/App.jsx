@@ -4,7 +4,7 @@ import {
   Tooltip, ResponsiveContainer, ReferenceLine,
 } from "recharts";
 import {
-  Pill, HeartPulse, Thermometer, Activity, ShieldCheck, AlertTriangle,
+  Pill, HeartPulse, Activity, ShieldCheck, AlertTriangle,
   Wifi, Users, Stethoscope, Clock, CheckCircle2, XCircle, Link2,
   ChevronRight, Bell, User, Download, Radio, Plus, X, Trash2, Wrench,
   Mic, Volume2, Play, Square, Upload, RotateCcw,
@@ -146,11 +146,6 @@ function assessVital(kind, value) {
   if (kind === "spo2") {
     if (value >= 95) return "good";
     if (value >= 90) return "attention";
-    return "critical";
-  }
-  if (kind === "temp") {
-    if (value >= 36.1 && value <= 37.4) return "good";
-    if (value <= 38.2) return "attention";
     return "critical";
   }
   return "good";
@@ -677,7 +672,6 @@ function CaregiverView({
           <div className="flex gap-3 flex-wrap">
             <VitalCard icon={HeartPulse} label="Heart Rate" value={vitals.hr} unit="bpm" kind="hr" range="60–100 bpm" />
             <VitalCard icon={Activity} label="Oxygen (SpO2)" value={vitals.spo2} unit="%" kind="spo2" range="≥ 95%" />
-            <VitalCard icon={Thermometer} label="Temperature" value={vitals.temp} unit="°C" kind="temp" range="36.1–37.4°C" />
           </div>
         )}
       </SectionCard>
@@ -785,7 +779,7 @@ function AddPatientModal({ onClose, onCreated }) {
         <div className="flex flex-col gap-3">
           <div>
             <label style={labelStyle}>Full name *</label>
-            <input style={inputStyle} value={form.name} onChange={set("name")} placeholder="Juan Dela Cruz" />
+            <input style={inputStyle} value={form.name} onChange={set("name")} placeholder="Franz Pineda" />
           </div>
           <div className="flex gap-3">
             <div style={{ flex: 1 }}>
@@ -803,7 +797,7 @@ function AddPatientModal({ onClose, onCreated }) {
           </div>
           <div>
             <label style={labelStyle}>Caregiver name</label>
-            <input style={inputStyle} value={form.caregiver_name} onChange={set("caregiver_name")} placeholder="Maria Dela Cruz" />
+            <input style={inputStyle} value={form.caregiver_name} onChange={set("caregiver_name")} placeholder="Caregiver" />
           </div>
 
           <div style={{ borderTop: `1px solid ${C.border}`, marginTop: 6, paddingTop: 14 }}>
@@ -958,7 +952,6 @@ function ProviderView({ patients, selectedPatientId, onSelect, onPatientCreated,
             <div className="flex gap-3 flex-wrap">
               <VitalCard icon={HeartPulse} label="Heart Rate" value={vitals.hr} unit="bpm" kind="hr" range="60–100 bpm" />
               <VitalCard icon={Activity} label="Oxygen (SpO2)" value={vitals.spo2} unit="%" kind="spo2" range="≥ 95%" />
-              <VitalCard icon={Thermometer} label="Temperature" value={vitals.temp} unit="°C" kind="temp" range="36.1–37.4°C" />
             </div>
           )}
         </SectionCard>

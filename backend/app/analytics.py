@@ -52,12 +52,6 @@ def assess_vital(kind: str, value: float) -> str:
         if value >= 90:
             return "attention"
         return "critical"
-    if kind == "temp":
-        if 36.1 <= value <= 37.4:
-            return "good"
-        if value <= 38.2:
-            return "attention"
-        return "critical"
     return "good"
 
 
@@ -323,17 +317,17 @@ def get_missed_by_medication(patient_id: str, days: int = 30) -> list:
 # =================================================================
 # 3. VITAL SIGN MONITORING ALGORITHM
 # =================================================================
-def record_vital(patient_id: str, hr: float, spo2: float, temp: float) -> dict:
+def record_vital(patient_id: str, hr: float, spo2: float) -> dict:
     with get_conn() as conn:
         conn.execute(
-            "INSERT INTO vitals (patient_id, hr, spo2, temp) VALUES (?, ?, ?, ?)",
-            (patient_id, hr, spo2, temp),
+            "INSERT INTO vitals (patient_id, hr, spo2) VALUES (?, ?, ?)",
+            (patient_id, hr, spo2),
         )
         conn.commit()
 
-    blockchain.append_entry(patient_id, "vital_reading_logged", {"hr": hr, "spo2": spo2, "temp": temp})
-    check_vitals_and_alert(patient_id, hr, spo2, temp)
-    return {"hr": hr, "spo2": spo2, "temp": temp, "timestamp": datetime.now().isoformat()}
+    blockchain.append_entry(patient_id, "vital_reading_logged", {"hr": hr, "spo2": spo2})
+    check_vitals_and_alert(patient_id, hr, spo2)
+    return {"hr": hr, "spo2": spo2, "timestamp": datetime.now().isoformat()}
 
 
 def get_latest_vitals(patient_id: str) -> dict:
@@ -343,7 +337,7 @@ def get_latest_vitals(patient_id: str) -> dict:
         ).fetchone()
     if not row:
         return None
-    return {"hr": row["hr"], "spo2": row["spo2"], "temp": row["temp"], "timestamp": row["recorded_at"]}
+    return {"hr": row["hr"], "spo2": row["spo2"], "timestamp": row["recorded_at"]}
 
 
 def get_vitals_trend(patient_id: str, days: int = 7) -> list:
@@ -354,14 +348,13 @@ def get_vitals_trend(patient_id: str, days: int = 7) -> list:
         end = datetime.combine(day, dt_time(23, 59, 59)).isoformat()
         with get_conn() as conn:
             row = conn.execute(
-                "SELECT AVG(hr) hr, AVG(spo2) spo2, AVG(temp) temp FROM vitals WHERE patient_id=? AND recorded_at BETWEEN ? AND ?",
+                "SELECT AVG(hr) hr, AVG(spo2) spo2 FROM vitals WHERE patient_id=? AND recorded_at BETWEEN ? AND ?",
                 (patient_id, start, end),
             ).fetchone()
         result.append({
             "day": day.strftime("%a"),
             "hr": round(row["hr"]) if row["hr"] is not None else None,
             "spo2": round(row["spo2"]) if row["spo2"] is not None else None,
-            "temp": round(row["temp"], 1) if row["temp"] is not None else None,
         })
     return result
 
@@ -382,8 +375,8 @@ def raise_alert(patient_id: str, alert_type: str, message: str) -> dict:
     return {"id": alert_id, "type": alert_type, "message": message}
 
 
-def check_vitals_and_alert(patient_id: str, hr: float, spo2: float, temp: float):
-    checks = [("hr", hr, "Heart rate"), ("spo2", spo2, "Oxygen (SpO2)"), ("temp", temp, "Temperature")]
+def check_vitals_and_alert(patient_id: str, hr: float, spo2: float):
+    checks = [("hr", hr, "Heart rate"), ("spo2", spo2, "Oxygen (SpO2)")]
     for kind, value, label in checks:
         level = assess_vital(kind, value)
         if level == "critical":

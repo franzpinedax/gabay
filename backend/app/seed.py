@@ -21,51 +21,26 @@ import analytics
 import blockchain
 
 PATIENTS = [
-    dict(id="p1", name="Elena Bautista", nickname="Nanay Elena", age=74,
-         condition="Mild Cognitive Impairment", caregiver_name="Marisol Bautista", status="good"),
-    dict(id="p2", name="Ramon Dela Cruz", nickname=None, age=81,
-         condition="MCI, Type 2 Diabetes", caregiver_name="Jun Dela Cruz", status="attention"),
-    dict(id="p3", name="Corazon Santos", nickname=None, age=69,
-         condition="Mild Cognitive Impairment", caregiver_name="Liza Santos", status="good"),
+    dict(id="p1", name="Franz Pineda", nickname="Franz", age=31,
+         condition="Medication Monitoring", caregiver_name="Caregiver", status="good"),
 ]
 
 SCHEDULES = {
     "p1": [
-        ("Donepezil", "5mg", "07:00"),
-        ("Metformin", "500mg", "12:00"),
-        ("Metformin", "500mg", "18:00"),
-        ("Donepezil", "5mg", "21:00"),
-    ],
-    "p2": [
-        ("Metformin", "850mg", "07:30"),
-        ("Glimepiride", "2mg", "13:00"),
-        ("Metformin", "850mg", "19:00"),
-        ("Donepezil", "5mg", "22:00"),
-    ],
-    "p3": [
-        ("Memantine", "10mg", "06:45"),
-        ("Losartan", "50mg", "12:30"),
-        ("Memantine", "10mg", "17:30"),
-        ("Losartan", "50mg", "20:30"),
+        ("Metformin", "500mg", "08:00"),
+        ("Atorvastatin", "20mg", "13:00"),
+        ("Vitamin D", "1000IU", "20:00"),
     ],
 }
 
-# Per-patient, per-timeslot adherence probability. Deliberately uneven —
-# e.g. p2 struggles specifically with the midday Glimepiride dose
-# (busy/distracted at lunch), p3 struggles with the early-morning dose
-# (hard to wake) and evenings (fatigue) — consistent with the
-# time-of-day adherence patterns your literature review cites.
+# Single-patient test data for local development and validation.
 TIME_SLOT_ADHERENCE = {
-    "p1": {"Morning": 0.97, "Afternoon": 0.96, "Evening": 0.90, "Night": 0.88},
-    "p2": {"Morning": 0.88, "Afternoon": 0.65, "Evening": 0.85, "Night": 0.82},
-    "p3": {"Morning": 0.55, "Afternoon": 0.75, "Evening": 0.60, "Night": 0.78},
+    "p1": {"Morning": 0.94, "Afternoon": 0.91, "Evening": 0.90, "Night": 0.88},
 }
 WEEKEND_PENALTY = 0.08  # adherence probability drops by this much on Sat/Sun
 
 VITAL_BASELINE = {
-    "p1": dict(hr=76, spo2=97, temp=36.6),
-    "p2": dict(hr=89, spo2=95, temp=36.9),
-    "p3": dict(hr=104, spo2=92, temp=37.5),
+    "p1": dict(hr=78, spo2=97),
 }
 
 
@@ -81,7 +56,7 @@ def _time_slot(hour: int) -> str:
 
 def backfill_history(patient_id: str, days: int = 90):
     slot_rates = TIME_SLOT_ADHERENCE.get(patient_id, {"Morning": 0.9, "Afternoon": 0.9, "Evening": 0.85, "Night": 0.85})
-    baseline = VITAL_BASELINE.get(patient_id, dict(hr=75, spo2=97, temp=36.6))
+    baseline = VITAL_BASELINE.get(patient_id, dict(hr=75, spo2=97))
 
     with get_conn() as conn:
         templates = conn.execute(
@@ -116,11 +91,10 @@ def backfill_history(patient_id: str, days: int = 90):
             for hour in (8, 14, 20):
                 ts = datetime.combine(day, dt_time(hour, 0)) + timedelta(minutes=random.randint(0, 45))
                 conn.execute(
-                    "INSERT INTO vitals (patient_id, hr, spo2, temp, recorded_at) VALUES (?, ?, ?, ?, ?)",
+                    "INSERT INTO vitals (patient_id, hr, spo2, recorded_at) VALUES (?, ?, ?, ?)",
                     (patient_id,
                      round(baseline["hr"] + random.uniform(-6, 6)),
                      min(100, round(baseline["spo2"] + random.uniform(-2, 1.5))),
-                     round(baseline["temp"] + random.uniform(-0.3, 0.3), 1),
                      ts.isoformat()),
                 )
         conn.commit()

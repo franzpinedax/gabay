@@ -65,7 +65,6 @@ CREATE TABLE IF NOT EXISTS vitals (
     patient_id  TEXT NOT NULL REFERENCES patients(id),
     hr          REAL,
     spo2        REAL,
-    temp        REAL,
     recorded_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -123,7 +122,7 @@ def reset_db():
 
 def generate_patient_id(name: str, conn) -> str:
     """Builds a readable, unique patient id from their name, e.g.
-    "Juan Dela Cruz" -> "juan-dela-cruz-4f2a". Takes an open connection
+    "Franz Pineda" -> "franz-pineda-4f2a". Takes an open connection
     so the uniqueness check happens in the same transaction as the
     insert that follows it."""
     slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or "patient"
