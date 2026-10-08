@@ -31,12 +31,17 @@ from paho.mqtt.enums import CallbackAPIVersion
 
 import analytics
 
-MQTT_BROKER_HOST = os.getenv("MQTT_BROKER_HOST", "192.168.100.86")
+MQTT_BROKER_HOST = os.getenv("MQTT_BROKER_HOST", "100.109.76.76")
 MQTT_BROKER_PORT = int(os.getenv("MQTT_BROKER_PORT", "1883"))
-MQTT_TOPIC_FILTER = "gabay/patients/+/vitals"  # '+' matches any single topic level (the patient id)
+MQTT_TOPIC_FILTER = "gabay/patients/+/+"  # vitals, BLE status, and future patient device topics
 
 logger = logging.getLogger("mqtt_bridge")
 _client = None
+
+
+def is_connected() -> bool:
+    """Return whether the backend currently has an MQTT broker connection."""
+    return _client is not None and _client.is_connected()
 
 
 def _on_connect(client, userdata, flags, reason_code, properties):
@@ -50,13 +55,21 @@ def _on_connect(client, userdata, flags, reason_code, properties):
 
 def _on_message(client, userdata, msg):
     try:
-        # Expected topic shape: gabay/patients/<patient_id>/vitals
+        # Expected topic shape: gabay/patients/<patient_id>/<device-topic>
         parts = msg.topic.split("/")
         if len(parts) != 4:
             raise ValueError(f"Unexpected topic shape: {msg.topic}")
         patient_id = parts[2]
+        topic = parts[3]
 
         payload = json.loads(msg.payload.decode("utf-8"))
+        if topic == "ble-status":
+            _record_ble_status(patient_id, payload)
+            return
+        if topic != "vitals":
+            logger.debug("Ignoring unsupported MQTT topic: %s", msg.topic)
+            return
+
         print(f"Received MQTT vitals for {patient_id}: {payload}")
 
         # Android's VitalsPayload uses camelCase names and reports epoch
@@ -77,6 +90,37 @@ def _on_message(client, userdata, msg):
         # A malformed message from one bad publish should never crash
         # the whole ingestion pipeline — log it and move on.
         logger.error(f"Failed to process MQTT message on {msg.topic!r}: {e}")
+
+
+def _record_ble_status(patient_id, payload):
+    """Persist the Android BLE heartbeat for the patient's dashboard card."""
+    from database import get_conn
+
+    connected = payload.get(
+        "connected",
+        payload.get("ble_connected", payload.get("wearable_connected", False)),
+    )
+    status = str(payload.get("status", "connected" if connected else "disconnected"))
+    device_name = payload.get("device_name")
+    seen_at = _payload_timestamp(payload) or datetime.now(timezone.utc).isoformat()
+
+    with get_conn() as conn:
+        patient = conn.execute("SELECT 1 FROM patients WHERE id=?", (patient_id,)).fetchone()
+        if not patient:
+            raise ValueError(f"Unknown patient id: {patient_id}")
+        conn.execute(
+            """INSERT INTO wearable_status
+               (patient_id, connected, status, device_name, last_seen)
+               VALUES (?, ?, ?, ?, ?)
+               ON CONFLICT(patient_id) DO UPDATE SET
+                 connected=excluded.connected,
+                 status=excluded.status,
+                 device_name=excluded.device_name,
+                 last_seen=excluded.last_seen""",
+            (patient_id, 1 if bool(connected) else 0, status, device_name, seen_at),
+        )
+        conn.commit()
+    logger.info("Recorded BLE status for %s: %s", patient_id, payload)
 
 
 def publish_due_commands():

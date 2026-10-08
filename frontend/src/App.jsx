@@ -58,6 +58,9 @@ const dataService = {
   async getPatients() {
     return getJSON("/patients");
   },
+  async getConnectionStatus(patientId) {
+    return getJSON(`/patients/${patientId}/connection-status`);
+  },
   async getVitalsSnapshot(patientId) {
     try {
       return await getJSON(`/patients/${patientId}/vitals/latest`);
@@ -67,6 +70,12 @@ const dataService = {
   },
   async getTodaySchedule(patientId) {
     return getJSON(`/patients/${patientId}/schedule/today`);
+  },
+  async getUpcomingRisk(patientId) {
+    return getJSON(`/patients/${patientId}/risk/upcoming`);
+  },
+  async getPatientReport(patientId) {
+    return getJSON(`/patients/${patientId}/report`);
   },
   async getAlerts(patientId) {
     return getJSON(`/patients/${patientId}/alerts?limit=10`);
@@ -276,7 +285,35 @@ function DoseDot({ status }) {
   );
 }
 
-function MedicationDayStrip({ schedule }) {
+function doseRiskStyle(riskLevel) {
+  if (riskLevel === "High") return { color: C.danger, background: C.dangerSoft };
+  if (riskLevel === "Medium") return { color: C.amber, background: C.amberSoft };
+  return { color: C.teal, background: C.tealSoft };
+}
+
+function DoseRiskBadge({ risk }) {
+  if (!risk || risk.risk_score === undefined) return null;
+  const colors = doseRiskStyle(risk.risk_level);
+  return (
+    <span
+      className="rounded-full px-2 py-0.5"
+      title={`${risk.risk_level} predicted risk of missing this dose`}
+      style={{
+        background: colors.background,
+        color: colors.color,
+        fontFamily: FONT_MONO,
+        fontSize: 9.5,
+        fontWeight: 600,
+        whiteSpace: "nowrap",
+      }}
+    >
+      {risk.risk_level} · {Math.round(risk.risk_score * 100)}%
+    </span>
+  );
+}
+
+function MedicationDayStrip({ schedule, upcomingRisk }) {
+  const riskByDoseId = new Map((upcomingRisk || []).map((risk) => [risk.dispense_event_id, risk]));
   return (
     <div className="relative flex justify-between items-start pt-2 pb-1 overflow-x-auto gap-2">
       <div
@@ -292,6 +329,7 @@ function MedicationDayStrip({ schedule }) {
           <span style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.ink, textAlign: "center", maxWidth: 90 }}>
             {dose.label}
           </span>
+          <DoseRiskBadge risk={riskByDoseId.get(dose.id)} />
         </div>
       ))}
     </div>
@@ -610,10 +648,16 @@ function ReminderSettings({ patientId, reminderConfig, onUpdate }) {
 
 function CaregiverView({
   patients, selectedPatientId, onSelectPatient,
-  patient, vitals, schedule, alerts, adherence7, loading,
+  patient, vitals, schedule, upcomingRisk, alerts, adherence7, loading,
   onDispense, onConfirm, dispenseBusy, dispenseError,
-  reminderConfig, onReminderUpdate,
+  reminderConfig, onReminderUpdate, connectionStatus,
 }) {
+  const wearableConnected = connectionStatus?.wearable_connected === true;
+  const wearableLabel = wearableConnected ? "Wearable connected" : "Wearable offline";
+  const wearableDetail = connectionStatus?.wearable_device_name
+    ? ` · ${connectionStatus.wearable_device_name}`
+    : "";
+
   return (
     <div className="grid gap-4" style={{ gridTemplateColumns: "1fr" }}>
       <PatientSwitcher patients={patients} selectedPatientId={selectedPatientId} onSelect={onSelectPatient} />
@@ -638,7 +682,28 @@ function CaregiverView({
           <SkeletonLine />
         ) : (
           <>
-            <MedicationDayStrip schedule={schedule} />
+            <div
+              className="flex items-center gap-2 rounded-lg px-3 py-2 mb-3"
+              style={{
+                background: wearableConnected ? C.tealSoft : C.dangerSoft,
+                color: wearableConnected ? C.tealDeep : C.danger,
+                fontFamily: FONT_BODY,
+                fontSize: 12,
+                fontWeight: 600,
+              }}
+            >
+              <Radio size={14} />
+              <span>
+                Wearable: {wearableConnected ? "Connected" : "Offline"}
+                {wearableDetail}
+              </span>
+            </div>
+            <MedicationDayStrip schedule={schedule} upcomingRisk={upcomingRisk} />
+            {upcomingRisk.length > 0 && (
+              <p style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.inkFaint, margin: "8px 0 0" }}>
+                Predicted chance of missing each unresolved dose: <strong style={{ color: C.inkSoft }}>Low</strong>, <strong style={{ color: C.amber }}>Medium</strong>, or <strong style={{ color: C.danger }}>High</strong>.
+              </p>
+            )}
             <DispenserTestPanel
               schedule={schedule}
               onDispense={onDispense}
@@ -661,7 +726,7 @@ function CaregiverView({
       <SectionCard
         icon={HeartPulse}
         title="Vitals right now"
-        subtitle="From the wearable — refreshing automatically"
+        subtitle={`${wearableLabel}${wearableDetail} · From the wearable — refreshing automatically`}
       >
         {loading ? (
           <SkeletonLine />
@@ -886,8 +951,54 @@ function SkeletonLine() {
   return <div className="skeleton" style={{ height: 90, borderRadius: 10 }} />;
 }
 
+function csvCell(value) {
+  const text = value === null || value === undefined ? "" : String(value);
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
+function reportToCsv(report) {
+  const lines = [
+    ["Gabay patient report"],
+    ["Generated at", report.generated_at],
+    [],
+    ["Patient", "Value"],
+    ["Name", report.patient.name],
+    ["Nickname", report.patient.nickname],
+    ["Age", report.patient.age],
+    ["Condition", report.patient.condition],
+    ["Caregiver", report.patient.caregiver_name],
+    ["Current status", report.patient.status],
+    [],
+    ["Adherence", "Value"],
+    ["Last 7 days", `${report.adherence.last_7_days_rate}%`],
+    [],
+    ["Daily adherence history", "Percent"],
+    ...report.adherence.history.map((row) => [row.day, row.pct === null ? "" : `${row.pct}%`]),
+    [],
+    ["Missed doses by time slot", "Missed"],
+    ...report.missed_by_timeslot.map((row) => [row.slot, row.missed]),
+    [],
+    ["Missed doses by medication", "Missed", "Total", "Miss rate"],
+    ...report.missed_by_medication.map((row) => [row.med_name, row.missed, row.total, `${row.rate}%`]),
+    [],
+    ["Vitals trend", "Heart rate", "SpO2"],
+    ...report.vitals_trend.map((row) => [row.day, row.hr, row.spo2]),
+    [],
+    ["Upcoming dose risk", "Scheduled", "Risk level", "Risk score", "Basis"],
+    ...report.upcoming_risk.map((row) => [
+      row.med_name, row.scheduled_datetime, row.risk_level,
+      `${Math.round(row.risk_score * 100)}%`, row.basis,
+    ]),
+    [],
+    ["Recent alerts", "Type", "Message"],
+    ...report.alerts.map((row) => [row.time, row.type, row.message]),
+  ];
+  return lines.map((row) => row.map(csvCell).join(",")).join("\r\n");
+}
+
 function ProviderView({ patients, selectedPatientId, onSelect, onPatientCreated, patient, vitals, adherence30, missedByTime, vitalsTrend, blockchainLog, loading }) {
-  const [exportNote, setExportNote] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [blockchainFilter, setBlockchainFilter] = useState("all");
   const visibleBlockchainLog = blockchainLog.filter((row) => {
@@ -946,19 +1057,36 @@ function ProviderView({ patients, selectedPatientId, onSelect, onPatientCreated,
           subtitle={patient ? `${patient.age} yrs · ${patient.condition}` : ""}
           right={
             <button
-              onClick={() => setExportNote(true)}
+              onClick={async () => {
+                setExporting(true);
+                setExportError(null);
+                try {
+                  const report = await dataService.getPatientReport(selectedPatientId);
+                  const blob = new Blob([reportToCsv(report)], { type: "text/csv;charset=utf-8" });
+                  const url = URL.createObjectURL(blob);
+                  const link = document.createElement("a");
+                  link.href = url;
+                  link.download = `gabay-report-${selectedPatientId}-${new Date().toISOString().slice(0, 10)}.csv`;
+                  document.body.appendChild(link);
+                  link.click();
+                  link.remove();
+                  URL.revokeObjectURL(url);
+                } catch (error) {
+                  console.error("Failed to export patient report", error);
+                  setExportError("Couldn't export the report — make sure the backend is running.");
+                } finally {
+                  setExporting(false);
+                }
+              }}
+              disabled={exporting}
               className="flex items-center gap-1.5 rounded-full px-3 py-1.5"
-              style={{ background: C.bgAlt, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 12, color: C.inkSoft, cursor: "pointer" }}
+              style={{ background: C.bgAlt, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 12, color: C.inkSoft, cursor: exporting ? "default" : "pointer", opacity: exporting ? 0.6 : 1 }}
             >
-              <Download size={13} /> Export report
+              <Download size={13} /> {exporting ? "Preparing report…" : "Export report"}
             </button>
           }
         >
-          {exportNote && (
-            <p style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.inkFaint, marginBottom: 10 }}>
-              Report export will be enabled once this dashboard is connected to the backend.
-            </p>
-          )}
+          {exportError && <p style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.danger, marginBottom: 10 }}>{exportError}</p>}
           {loading ? <SkeletonLine /> : !vitals ? (
             <p style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.inkFaint }}>
               No vitals recorded yet for this patient.
@@ -1104,12 +1232,18 @@ export default function App() {
   const [selectedPatientId, setSelectedPatientId] = useState("p1");
   const [vitals, setVitals] = useState(null);
   const [schedule, setSchedule] = useState([]);
+  const [upcomingRisk, setUpcomingRisk] = useState([]);
   const [alerts, setAlerts] = useState([]);
   const [adherence7, setAdherence7] = useState([]);
   const [adherence30, setAdherence30] = useState([]);
   const [missedByTime, setMissedByTime] = useState([]);
   const [vitalsTrend, setVitalsTrend] = useState([]);
   const [blockchainLog, setBlockchainLog] = useState([]);
+  const [connectionStatus, setConnectionStatus] = useState({
+    dispenser_connected: false,
+    wearable_connected: false,
+    blockchain_synced: false,
+  });
   const [reminderConfig, setReminderConfig] = useState(null);
   const [loading, setLoading] = useState(true);
   const pollRef = useRef(null);
@@ -1130,9 +1264,10 @@ export default function App() {
   }, [refreshPatients]);
 
   const fetchPatientData = useCallback(async (id) => {
-    const [v, s, a, h7, h30, mbt, vt, bl, rc] = await Promise.all([
+    const [v, s, r, a, h7, h30, mbt, vt, bl, rc, cs] = await Promise.all([
       dataService.getVitalsSnapshot(id),
       dataService.getTodaySchedule(id),
+      dataService.getUpcomingRisk(id),
       dataService.getAlerts(id),
       dataService.getAdherenceHistory(id, 7),
       dataService.getAdherenceHistory(id, 30),
@@ -1140,10 +1275,11 @@ export default function App() {
       dataService.getVitalsTrend(id),
       dataService.getBlockchainLog(id),
       dataService.getReminderConfig(id),
+      dataService.getConnectionStatus(id),
     ]);
-    setVitals(v); setSchedule(s); setAlerts(a);
+    setVitals(v); setSchedule(s); setUpcomingRisk(r); setAlerts(a);
     setAdherence7(h7); setAdherence30(h30); setMissedByTime(mbt);
-    setVitalsTrend(vt); setBlockchainLog(bl); setReminderConfig(rc);
+    setVitalsTrend(vt); setBlockchainLog(bl); setReminderConfig(rc); setConnectionStatus(cs);
   }, []);
 
   const loadPatientData = useCallback(async (id) => {
@@ -1162,6 +1298,9 @@ export default function App() {
   useEffect(() => {
     pollRef.current = setInterval(() => {
       dataService.getVitalsSnapshot(selectedPatientId).then(setVitals);
+      dataService.getConnectionStatus(selectedPatientId).then(setConnectionStatus).catch((error) => {
+        console.error("Failed to refresh connection status", error);
+      });
     }, 5000);
     return () => clearInterval(pollRef.current);
   }, [selectedPatientId]);
@@ -1259,11 +1398,11 @@ export default function App() {
 
         {/* CONNECTION STATUS */}
         <div className="flex items-center gap-2 flex-wrap">
-          <ConnectionPill icon={Wifi} label="Dispenser online" />
-          <ConnectionPill icon={Radio} label="Wearable paired" />
-          <ConnectionPill icon={Link2} label="Blockchain synced" />
+          <ConnectionPill icon={Wifi} label={connectionStatus.dispenser_connected ? "Dispenser connected" : "Dispenser offline"} ok={connectionStatus.dispenser_connected} />
+          <ConnectionPill icon={Radio} label={connectionStatus.wearable_connected ? "Wearable connected" : "Wearable offline"} ok={connectionStatus.wearable_connected} />
+          <ConnectionPill icon={Link2} label={connectionStatus.blockchain_synced ? "Blockchain synced" : "Blockchain check failed"} ok={connectionStatus.blockchain_synced} />
           <span style={{ fontFamily: FONT_MONO, fontSize: 11, color: C.inkFaint, marginLeft: 4 }}>
-            Live vitals refresh every 5s (demo)
+            Live connection status
           </span>
         </div>
 
@@ -1276,6 +1415,7 @@ export default function App() {
             patient={selectedPatient}
             vitals={vitals}
             schedule={schedule}
+            upcomingRisk={upcomingRisk}
             alerts={alerts}
             adherence7={adherence7}
             loading={loading}
@@ -1285,6 +1425,7 @@ export default function App() {
             dispenseError={dispenseError}
             reminderConfig={reminderConfig}
             onReminderUpdate={setReminderConfig}
+            connectionStatus={connectionStatus}
           />
         ) : (
           <ProviderView

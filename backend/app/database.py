@@ -55,6 +55,7 @@ CREATE TABLE IF NOT EXISTS dispense_events (
     scheduled_datetime  TEXT NOT NULL,   -- ISO datetime
     dispensed_at        TEXT,            -- set when the mechanism actuates
     confirmed_at        TEXT,            -- set when intake is confirmed
+    command_sent_at     TEXT,            -- set when the dispenser command is published
     status              TEXT NOT NULL DEFAULT 'pending',
         -- pending | dispensed | confirmed | missed
     confirm_source      TEXT             -- dispenser_sensor | wearable_gesture | manual
@@ -66,6 +67,14 @@ CREATE TABLE IF NOT EXISTS vitals (
     hr          REAL,
     spo2        REAL,
     recorded_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS wearable_status (
+    patient_id   TEXT PRIMARY KEY REFERENCES patients(id),
+    connected    INTEGER NOT NULL DEFAULT 0,
+    status       TEXT NOT NULL DEFAULT 'disconnected',
+    device_name  TEXT,
+    last_seen    TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS alerts (
@@ -95,9 +104,15 @@ CREATE TABLE IF NOT EXISTS ledger (
 
 
 def init_db():
-    """Create all tables if they don't already exist."""
+    """Create tables and apply additive migrations to existing databases."""
     with get_conn() as conn:
         conn.executescript(SCHEMA)
+        columns = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(dispense_events)").fetchall()
+        }
+        if "command_sent_at" not in columns:
+            conn.execute("ALTER TABLE dispense_events ADD COLUMN command_sent_at TEXT")
         conn.commit()
 
 

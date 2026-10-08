@@ -169,6 +169,15 @@ def mark_dispensed(dispense_event_id: int) -> dict:
 def confirm_dose(dispense_event_id: int, source: str = "wearable_gesture") -> dict:
     """Called when the wearable/sensor confirms the patient actually took it."""
     with get_conn() as conn:
+        existing = conn.execute(
+            "SELECT * FROM dispense_events WHERE id=?", (dispense_event_id,)
+        ).fetchone()
+        if not existing:
+            raise ValueError(f"Dose event {dispense_event_id} was not found")
+        if existing["status"] == "missed":
+            raise ValueError("A missed dose cannot be confirmed")
+        if existing["status"] == "confirmed":
+            return dict(existing)
         conn.execute(
             "UPDATE dispense_events SET status='confirmed', confirmed_at=?, confirm_source=? WHERE id=?",
             (datetime.now().isoformat(), source, dispense_event_id),

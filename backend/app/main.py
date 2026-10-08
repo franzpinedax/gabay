@@ -9,7 +9,9 @@ Run with:  uvicorn main:app --reload --host 0.0.0.0 --port 8000
 """
 import asyncio
 import json
-from datetime import datetime
+import logging
+import sqlite3
+from datetime import datetime, timezone
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, UploadFile, File
 from fastapi.responses import FileResponse
@@ -78,14 +80,19 @@ async def _background_sweeper():
     cron job for the thesis prototype; swap for APScheduler or a real
     task queue for a production deployment."""
     while True:
-        with get_conn() as conn:
-            patient_ids = [r["id"] for r in conn.execute("SELECT id FROM patients").fetchall()]
-        for pid in patient_ids:
-            analytics.generate_todays_schedule(pid)
-            newly_missed = analytics.sweep_missed_doses(pid, grace_minutes=30)
-            for _ in newly_missed:
-                await manager.broadcast(pid, {"type": "alert_update"})
-        mqtt_bridge.publish_due_commands()
+        try:
+            with get_conn() as conn:
+                patient_ids = [r["id"] for r in conn.execute("SELECT id FROM patients").fetchall()]
+            for pid in patient_ids:
+                analytics.generate_todays_schedule(pid)
+                newly_missed = analytics.sweep_missed_doses(pid, grace_minutes=30)
+                for _ in newly_missed:
+                    await manager.broadcast(pid, {"type": "alert_update"})
+            mqtt_bridge.publish_due_commands()
+        except sqlite3.OperationalError:
+            # Keep scheduled monitoring alive; the failing cycle is logged
+            # while the next cycle retries after the database/broker recovers.
+            logging.getLogger("gabay.background").exception("Background monitoring cycle failed")
         await asyncio.sleep(30)
 
 
@@ -111,6 +118,64 @@ def get_patient(patient_id: str):
     if not row:
         raise HTTPException(404, "Patient not found")
     return dict(row)
+
+
+@app.get("/patients/{patient_id}/connection-status")
+def connection_status(patient_id: str):
+    """Report connection evidence for the selected patient's devices."""
+    with get_conn() as conn:
+        patient = conn.execute("SELECT id FROM patients WHERE id=?", (patient_id,)).fetchone()
+        latest_vital = conn.execute(
+            "SELECT recorded_at FROM vitals WHERE patient_id=? ORDER BY id DESC LIMIT 1",
+            (patient_id,),
+        ).fetchone()
+        latest_ble = conn.execute(
+            "SELECT connected, status, device_name, last_seen FROM wearable_status WHERE patient_id=?",
+            (patient_id,),
+        ).fetchone()
+    if not patient:
+        raise HTTPException(404, "Patient not found")
+
+    wearable_connected = False
+    wearable_last_seen = None
+    wearable_status = "disconnected"
+    wearable_device_name = None
+    if latest_ble:
+        wearable_last_seen = latest_ble["last_seen"]
+        wearable_status = latest_ble["status"]
+        wearable_device_name = latest_ble["device_name"]
+        try:
+            last_seen = datetime.fromisoformat(latest_ble["last_seen"])
+            if last_seen.tzinfo is None:
+                last_seen = last_seen.replace(tzinfo=timezone.utc)
+            wearable_connected = bool(latest_ble["connected"]) and (
+                datetime.now(timezone.utc) - last_seen
+            ).total_seconds() <= 90
+        except ValueError:
+            wearable_connected = False
+    elif latest_vital:
+        # Backward-compatible fallback for older publishers that only send vitals.
+        try:
+            recorded_at = datetime.fromisoformat(latest_vital["recorded_at"])
+            if recorded_at.tzinfo is None:
+                recorded_at = recorded_at.replace(tzinfo=timezone.utc)
+            wearable_connected = (
+                datetime.now(timezone.utc) - recorded_at
+            ).total_seconds() <= 10 * 60
+            wearable_last_seen = latest_vital["recorded_at"]
+            wearable_status = "connected" if wearable_connected else "disconnected"
+        except ValueError:
+            wearable_connected = False
+
+    ledger_status = blockchain.verify_chain(patient_id)
+    return {
+        "dispenser_connected": mqtt_bridge.is_connected(),
+        "wearable_connected": wearable_connected,
+        "blockchain_synced": ledger_status["valid"],
+        "wearable_status": wearable_status,
+        "wearable_device_name": wearable_device_name,
+        "wearable_last_seen": wearable_last_seen,
+    }
 
 
 @app.post("/patients")
@@ -213,7 +278,10 @@ async def send_dispense_command(event_id: int):
 async def confirm(event_id: int, body: ConfirmIn):
     """Called when the wearable/sensor confirms actual intake
     (e.g. a detected medication-taking gesture)."""
-    row = analytics.confirm_dose(event_id, source=body.source)
+    try:
+        row = analytics.confirm_dose(event_id, source=body.source)
+    except ValueError as error:
+        raise HTTPException(409, str(error))
     await manager.broadcast(row["patient_id"], {"type": "schedule_update"})
     return row
 
@@ -309,6 +377,37 @@ def risk_upcoming(patient_id: str):
     not-yet-resolved doses — this is what the dashboard shows to flag
     which upcoming dose most needs caregiver attention."""
     return predictive.predict_upcoming_risk(patient_id)
+
+
+# ---------------------------------------------------------------
+# Provider report export
+# ---------------------------------------------------------------
+@app.get("/patients/{patient_id}/report")
+def patient_report(patient_id: str):
+    """Return the provider-facing report data used by the dashboard export."""
+    with get_conn() as conn:
+        patient = conn.execute("SELECT * FROM patients WHERE id=?", (patient_id,)).fetchone()
+    if not patient:
+        raise HTTPException(404, "Patient not found")
+
+    model_result = predictive.train_risk_model(patient_id)
+    model_metrics = model_result if isinstance(model_result, dict) else model_result[0]
+    return {
+        "generated_at": datetime.now().isoformat(),
+        "patient": dict(patient),
+        "schedule": analytics.get_today_schedule(patient_id),
+        "adherence": {
+            "last_7_days_rate": analytics.compute_adherence_rate(patient_id, days=7),
+            "history": analytics.get_adherence_history(patient_id, days=30),
+        },
+        "missed_by_timeslot": analytics.get_missed_by_timeslot(patient_id, days=30),
+        "missed_by_weekday": analytics.get_missed_by_weekday(patient_id, days=30),
+        "missed_by_medication": analytics.get_missed_by_medication(patient_id, days=30),
+        "vitals_trend": analytics.get_vitals_trend(patient_id, days=7),
+        "alerts": analytics.get_alerts(patient_id, limit=50),
+        "upcoming_risk": predictive.predict_upcoming_risk(patient_id),
+        "risk_model": model_metrics,
+    }
 
 
 # ---------------------------------------------------------------

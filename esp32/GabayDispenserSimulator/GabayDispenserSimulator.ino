@@ -4,13 +4,13 @@
 #include <ArduinoJson.h>
 
 // Update these values for your network and Gabay installation.
-const char* WIFI_SSID = "YOUR_WIFI_NAME";
-const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
-const char* MQTT_HOST = "192.168.100.86";
+const char* WIFI_SSID = "Dubu";
+const char* WIFI_PASSWORD = "budol400mb";
+const char* MQTT_HOST = "192.168.100.4";
 const uint16_t MQTT_PORT = 1883;
-const char* GABAY_HOST = "192.168.100.86";
+const char* GABAY_HOST = "192.168.100.4";
 const uint16_t GABAY_PORT = 8000;
-const char* PATIENT_ID = "franzpineda8249";
+const char* PATIENT_ID = "p1";
 
 // Optional simulation hardware. The dispense action is also printed to Serial.
 const uint8_t ALARM_PIN = 25;
