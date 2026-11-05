@@ -766,7 +766,10 @@ const inputStyle = {
 const labelStyle = { fontFamily: FONT_BODY, fontSize: 12, fontWeight: 500, color: C.inkSoft, display: "block", marginBottom: 4 };
 
 function AddPatientModal({ onClose, onCreated }) {
-  const [form, setForm] = useState({ name: "", nickname: "", age: "", condition: "", caregiver_name: "" });
+  const [form, setForm] = useState({
+    name: "", nickname: "", age: "", condition: "", caregiver_name: "",
+    caregiver_email: "", caregiver_phone: "",
+  });
   const [meds, setMeds] = useState([{ med_name: "", dosage: "", scheduled_time: "" }]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
@@ -791,6 +794,8 @@ function AddPatientModal({ onClose, onCreated }) {
         age: parseInt(form.age, 10),
         condition: form.condition.trim(),
         caregiver_name: form.caregiver_name.trim() || null,
+        caregiver_email: form.caregiver_email.trim() || null,
+        caregiver_phone: form.caregiver_phone.trim() || null,
       });
       const validMeds = meds.filter((m) => m.med_name.trim() && m.dosage.trim() && m.scheduled_time);
       for (const m of validMeds) {
@@ -851,6 +856,16 @@ function AddPatientModal({ onClose, onCreated }) {
           <div>
             <label style={labelStyle}>Caregiver name</label>
             <input style={inputStyle} value={form.caregiver_name} onChange={set("caregiver_name")} placeholder="Caregiver" />
+          </div>
+          <div className="flex gap-3">
+            <div style={{ flex: 1 }}>
+              <label style={labelStyle}>Caregiver email</label>
+              <input style={inputStyle} type="email" value={form.caregiver_email} onChange={set("caregiver_email")} placeholder="caregiver@example.com" />
+            </div>
+            <div style={{ flex: 1 }}>
+              <label style={labelStyle}>Caregiver phone (SMS)</label>
+              <input style={inputStyle} type="tel" value={form.caregiver_phone} onChange={set("caregiver_phone")} placeholder="+639171234567" />
+            </div>
           </div>
 
           <div style={{ borderTop: `1px solid ${C.border}`, marginTop: 6, paddingTop: 14 }}>

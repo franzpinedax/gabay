@@ -29,6 +29,8 @@ CREATE TABLE IF NOT EXISTS patients (
     age             INTEGER,
     condition       TEXT,
     caregiver_name  TEXT,
+    caregiver_email TEXT,
+    caregiver_phone TEXT,
     status          TEXT NOT NULL DEFAULT 'good',   -- good | attention | critical
     reminder_type   TEXT NOT NULL DEFAULT 'beep',   -- beep | voice
     reminder_audio_filename TEXT,                   -- set when reminder_type='voice'
@@ -113,6 +115,13 @@ def init_db():
         }
         if "command_sent_at" not in columns:
             conn.execute("ALTER TABLE dispense_events ADD COLUMN command_sent_at TEXT")
+        patient_columns = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(patients)").fetchall()
+        }
+        for column in ("caregiver_email", "caregiver_phone"):
+            if column not in patient_columns:
+                conn.execute(f"ALTER TABLE patients ADD COLUMN {column} TEXT")
         conn.commit()
 
 

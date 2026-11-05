@@ -97,6 +97,38 @@ uvicorn main:app --reload --host 0.0.0.0 --port 8000
 
 The ESP32 cannot install Tailscale directly. If it must reach the broker or API from outside the local network, use a Tailscale subnet router or a Tailscale-capable gateway on the ESP32's network. Then set `MQTT_HOST` and `GABAY_HOST` in `esp32/GabayDispenserSimulator/GabayDispenserSimulator.ino` to the reachable gateway/server addresses. Do not expose unauthenticated port 8000 or MQTT port 1883 publicly.
 
+## Caregiver email and SMS alerts
+
+The reminder/alert algorithm stores every missed-dose and critical-vital alert in
+the dashboard. It can also notify the caregiver by email, SMS, or both. Add the
+caregiver's email address and/or phone number when creating a patient.
+
+Email uses SMTP:
+
+```powershell
+$env:SMTP_HOST = "smtp.example.com"
+$env:SMTP_PORT = "587"
+$env:SMTP_USER = "gabay@example.com"
+$env:SMTP_PASSWORD = "<SMTP_PASSWORD>"
+$env:SMTP_FROM = "gabay@example.com"
+$env:SMTP_TLS = "true"
+```
+
+SMS uses a Twilio account:
+
+```powershell
+$env:TWILIO_ACCOUNT_SID = "<TWILIO_ACCOUNT_SID>"
+$env:TWILIO_AUTH_TOKEN = "<TWILIO_AUTH_TOKEN>"
+$env:TWILIO_FROM_NUMBER = "+15005550006"
+```
+
+Notifications are optional. If a provider is not configured, the alert remains
+available in the dashboard and the backend logs that delivery was skipped.
+Never commit these credentials or expose them in frontend environment files.
+For an existing patient, set destinations through
+`PUT /patients/{patient_id}/caregiver-contact` with
+`{"email":"caregiver@example.com","phone":"+639171234567"}`.
+
 ## 5. Confirm it's actually connected (not just running)
 
 - Switch the role toggle to **Healthcare Provider** and confirm the single patient in the sidebar is **Franz Pineda** with the expected adherence data.

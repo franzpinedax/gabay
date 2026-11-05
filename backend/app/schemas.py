@@ -26,3 +26,10 @@ class PatientIn(BaseModel):
     age: int = Field(..., ge=0, le=130)
     condition: str = Field(..., min_length=1)
     caregiver_name: Optional[str] = None
+    caregiver_email: Optional[str] = None
+    caregiver_phone: Optional[str] = None
+
+
+class CaregiverContactIn(BaseModel):
+    email: Optional[str] = None
+    phone: Optional[str] = None

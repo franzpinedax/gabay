@@ -23,7 +23,7 @@ import mqtt_bridge
 import predictive
 import reminders
 from database import get_conn, init_db, generate_patient_id
-from schemas import VitalIn, ConfirmIn, ScheduleIn, PatientIn
+from schemas import VitalIn, ConfirmIn, ScheduleIn, PatientIn, CaregiverContactIn
 
 app = FastAPI(title="Gabay API", version="0.1.0")
 
@@ -188,15 +188,34 @@ def create_patient(body: PatientIn):
     with get_conn() as conn:
         new_id = generate_patient_id(body.name, conn)
         conn.execute(
-            """INSERT INTO patients (id, name, nickname, age, condition, caregiver_name, status)
-               VALUES (?, ?, ?, ?, ?, ?, 'good')""",
-            (new_id, body.name, body.nickname, body.age, body.condition, body.caregiver_name),
+            """INSERT INTO patients
+               (id, name, nickname, age, condition, caregiver_name, caregiver_email, caregiver_phone, status)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'good')""",
+            (
+                new_id, body.name, body.nickname, body.age, body.condition,
+                body.caregiver_name, body.caregiver_email, body.caregiver_phone,
+            ),
         )
         conn.commit()
     return {
         "id": new_id, "name": body.name, "nickname": body.nickname, "age": body.age,
         "condition": body.condition, "caregiver_name": body.caregiver_name, "status": "good",
+        "caregiver_email": body.caregiver_email, "caregiver_phone": body.caregiver_phone,
     }
+
+
+@app.put("/patients/{patient_id}/caregiver-contact")
+def update_caregiver_contact(patient_id: str, body: CaregiverContactIn):
+    """Set or clear the caregiver destinations used for alert delivery."""
+    with get_conn() as conn:
+        cur = conn.execute(
+            "UPDATE patients SET caregiver_email=?, caregiver_phone=? WHERE id=?",
+            (body.email, body.phone, patient_id),
+        )
+        conn.commit()
+    if cur.rowcount == 0:
+        raise HTTPException(404, "Patient not found")
+    return {"patient_id": patient_id, "caregiver_email": body.email, "caregiver_phone": body.phone}
 
 
 # ---------------------------------------------------------------

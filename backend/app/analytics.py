@@ -15,6 +15,7 @@ from datetime import datetime, timedelta, date, time as dt_time
 
 from database import get_conn
 import blockchain
+import notifications
 
 
 def format_12h(dt: datetime) -> str:
@@ -380,8 +381,13 @@ def raise_alert(patient_id: str, alert_type: str, message: str) -> dict:
         conn.commit()
         alert_id = cur.lastrowid
 
+    alert = {"id": alert_id, "type": alert_type, "message": message}
     blockchain.append_entry(patient_id, "caregiver_alert_sent", {"alert_id": alert_id, "type": alert_type, "message": message})
-    return {"id": alert_id, "type": alert_type, "message": message}
+    with get_conn() as conn:
+        patient = conn.execute("SELECT * FROM patients WHERE id=?", (patient_id,)).fetchone()
+    if patient:
+        notifications.send_alert_notifications(dict(patient), alert)
+    return alert
 
 
 def check_vitals_and_alert(patient_id: str, hr: float, spo2: float):
